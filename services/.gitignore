@@ -1,0 +1,19 @@
+# Python services
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+.env
+*.log
+.coverage
+.pytest_cache/
+.mypy_cache/
+
+# Model files
+*.h5
+*.pkl
+*.pth
+models/*.model 

@@ -1,0 +1,7 @@
+# Backend specific
+/node_modules
+/dist
+.env
+npm-debug.log*
+coverage/
+*.log 

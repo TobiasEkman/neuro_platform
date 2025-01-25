@@ -1,0 +1,50 @@
+.dashboard {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.patient-summary {
+  margin-bottom: 2rem;
+}
+
+.summary-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.detail-item label {
+  font-size: 0.9rem;
+  color: #718096;
+  margin-bottom: 0.25rem;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+}
+
+.metric-large {
+  font-size: 2.5rem;
+  font-weight: bold;
+  color: #2d3748;
+  margin: 1rem 0;
+}
+
+.metric-location {
+  color: #718096;
+  font-size: 0.9rem;
+}
+
+.metric-item {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+} 
