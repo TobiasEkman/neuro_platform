@@ -15,6 +15,7 @@ CORE COMPONENTS
   * 3D tumor visualization using Three.js
   * Surgical approach planning interface
   * ICD coding assistance
+  * DICOM data management interface
 - Technologies: React 18, TypeScript, Chart.js, Three.js
 
 2. Main API (Node.js + Express)
@@ -24,6 +25,7 @@ CORE COMPONENTS
   * Authentication/Authorization
   * Request routing to microservices
   * Data aggregation
+  * DICOM import coordination
 - Technologies: Node.js, Express, TypeScript, Mongoose
 
 3. AI/Analysis Service (Flask)
@@ -48,12 +50,21 @@ CORE COMPONENTS
   * Clinical text analysis
 - Technologies: Flask, Transformers, PyTorch
 
-6. Data Storage
+6. DICOM Ingestion Service (Flask)
+- DICOM data management:
+  * Folder-based DICOM import
+  * DICOMDIR parsing
+  * Study/Series organization
+  * DICOM metadata extraction
+- Technologies: Flask, PyDICOM, PyMongo
+
+7. Data Storage
 - MongoDB:
   * Patient metadata
   * Analysis results
   * Model metadata
   * System logs
+  * DICOM metadata
 - Local DICOM storage:
   * Raw imaging data
   * Segmentation masks
@@ -65,6 +76,7 @@ API ENDPOINTS
 - /api/patients: Patient management
 - /api/analysis: Analysis routing
 - /api/icp: ICP monitoring
+- /api/dicom: DICOM management
 
 2. AI Service (port 5000)
 - /api/analysis/tumor: Tumor analysis
@@ -77,6 +89,10 @@ API ENDPOINTS
 4. Clinical Coding (port 5002)
 - /api/coding/icd: ICD code suggestions
 - /api/coding/procedure: Procedure coding
+
+5. DICOM Service (port 5003)
+- /api/dicom/parse/folder: Parse DICOM folder
+- /api/dicom/parse/dicomdir: Parse DICOMDIR file
 
 DEVELOPMENT SETUP
 
@@ -91,7 +107,7 @@ npm install
 npm run dev
 
 3. Services:
-cd services/ai_analysis
+cd services/dicom_ingestion  # (or other service directories)
 python -m venv venv
 .\venv\Scripts\activate
 pip install -r requirements.txt
@@ -115,6 +131,12 @@ DEPENDENCIES
 - TensorFlow 2.15
 - Flask 2.0
 - PyDICOM 2.2
+
+4. DICOM Service:
+- Python 3.9+
+- Flask 2.0
+- PyDICOM 2.2
+- PyMongo 4.3
 
 DOCKER SUPPORT
 
@@ -150,7 +172,8 @@ neuro-platform/
 │   │   ├── routes/         # API routes
 │   │   └── models/         # Mongoose models
 ├── services/               # Flask microservices
-│   ├── ai_analysis/       # Service A
-│   ├── model_training/    # Service B
-│   └── clinical_coding/   # Service C
+│   ├── ai_analysis/       # AI/Analysis service
+│   ├── model_training/    # Model training service
+│   ├── clinical_coding/   # Clinical coding service
+│   └── dicom_ingestion/   # DICOM management service
 └── docker/                # Docker configurations

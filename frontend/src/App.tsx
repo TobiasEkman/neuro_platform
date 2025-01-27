@@ -5,6 +5,7 @@ import Dashboard from './components/Dashboard';
 import PreopPlanning from './components/PreopPlanning';
 import ICPMonitoring from './components/ICPMonitoring';
 import TumorAnalysis from './components/TumorAnalysis';
+import DicomManager from './components/DicomManager';
 import Navigation from './components/Navigation';
 import './styles/App.css';
 
@@ -20,6 +21,7 @@ const App: React.FC = () => {
               <Route path="/preop-planning" element={<PreopPlanning />} />
               <Route path="/icp-monitoring" element={<ICPMonitoring />} />
               <Route path="/tumor-analysis" element={<TumorAnalysis />} />
+              <Route path="/dicom-manager" element={<DicomManager />} />
             </Routes>
           </main>
         </div>

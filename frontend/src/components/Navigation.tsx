@@ -29,6 +29,9 @@ const Navigation: React.FC = () => {
         <Link to="/tumor-analysis" className={location.pathname === '/tumor-analysis' ? 'active' : ''}>
           Tumor Analysis
         </Link>
+        <Link to="/dicom-manager" className={location.pathname === '/dicom-manager' ? 'active' : ''}>
+          DICOM Manager
+        </Link>
       </div>
     </nav>
   );

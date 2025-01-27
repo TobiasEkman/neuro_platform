@@ -43,6 +43,17 @@ services:
     ports:
       - "5002:5002"
 
+  dicom_ingestion:
+    build:
+      context: ../services/dicom_ingestion
+      dockerfile: ../docker/flask.Dockerfile
+    ports:
+      - "5003:5003"
+    depends_on:
+      - mongodb
+    volumes:
+      - dicom_data:/data/dicom
+
   mongodb:
     image: mongo:latest
     ports:
@@ -51,4 +62,5 @@ services:
       - mongodb_data:/data/db
 
 volumes:
-  mongodb_data: 
+  mongodb_data:
+  dicom_data: 
