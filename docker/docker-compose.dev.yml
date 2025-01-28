@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  local_inference:
+    build:
+      context: ../services/local_inference
+      dockerfile: ../docker/local_inference.Dockerfile
+    ports:
+      - "5004:5004"
+    volumes:
+      - ../services/local_inference:/app
+      - model_data:/app/data
+      # Add volume for static files
+      - ../services/local_inference/static:/app/static
+    environment:
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+      # Add configurable paths for development
+      - ENCRYPTED_MODEL_PATH=./data/model_encrypted.json
+      - ENCRYPTED_BIN_DIR=./data/encrypted_bin_files
+
+volumes:
+  model_data: 

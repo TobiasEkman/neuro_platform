@@ -1,0 +1,49 @@
+.local-inference {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+.upload-section {
+    display: grid;
+    gap: 2rem;
+    margin: 2rem 0;
+}
+
+.key-upload, .image-upload {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+input[type="file"] {
+    padding: 0.5rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+input[type="file"]:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.key-expiration {
+    color: #e53e3e;
+    font-weight: bold;
+    margin: 1rem 0;
+}
+
+.instructions {
+    margin-top: 2rem;
+    padding: 1rem;
+    background: #f7fafc;
+    border-radius: 8px;
+}
+
+.instructions ol {
+    margin-left: 1.5rem;
+}
+
+.instructions li {
+    margin: 0.5rem 0;
+} 

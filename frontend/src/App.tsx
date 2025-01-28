@@ -6,7 +6,9 @@ import PreopPlanning from './components/PreopPlanning';
 import ICPMonitoring from './components/ICPMonitoring';
 import TumorAnalysis from './components/TumorAnalysis';
 import DicomManager from './components/DicomManager';
-import Navigation from './components/Navigation';
+import LocalInference from './components/LocalInference';
+import { Navigation } from './components/Navigation';
+import { NeurosurgerySimulator } from './components/simulator/NeurosurgerySimulator';
 import './styles/App.css';
 
 const App: React.FC = () => {
@@ -22,6 +24,8 @@ const App: React.FC = () => {
               <Route path="/icp-monitoring" element={<ICPMonitoring />} />
               <Route path="/tumor-analysis" element={<TumorAnalysis />} />
               <Route path="/dicom-manager" element={<DicomManager />} />
+              <Route path="/local-inference" element={<LocalInference />} />
+              <Route path="/simulator" element={<NeurosurgerySimulator />} />
             </Routes>
           </main>
         </div>

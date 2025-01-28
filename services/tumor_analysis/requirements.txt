@@ -1,0 +1,5 @@
+flask==2.0.1
+numpy==1.21.2
+tensorflow==2.6.0
+pydicom==2.2.2
+shared-libs==1.0.0 

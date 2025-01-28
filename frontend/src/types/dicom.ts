@@ -21,6 +21,17 @@ export interface DicomInstance {
     file_path: string;
 }
 
+export interface DicomImage {
+    instanceUid: string;
+    pixelData: Float32Array;
+    rows: number;
+    columns: number;
+    windowCenter: number;
+    windowWidth: number;
+    pixelSpacing?: [number, number];
+    sliceLocation?: number;
+}
+
 export interface DicomImportResult {
     message: string;
     studies: {

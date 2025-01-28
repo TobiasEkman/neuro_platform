@@ -2,6 +2,11 @@ import React, { useState } from 'react';
 import { useDemo } from '../context/DemoContext';
 import '../styles/PreopPlanning.css';
 
+interface TumorAnalysis {
+  eloquentAreas: string[];
+  vesselInvolvement: string[];
+}
+
 const PreopPlanning: React.FC = () => {
   const { patient, tumorAnalysis } = useDemo();
   const [selectedApproach, setSelectedApproach] = useState('pterional');
@@ -57,12 +62,12 @@ const PreopPlanning: React.FC = () => {
       <div className="card">
         <h3>Critical Structures</h3>
         <div className="structures-list">
-          {tumorAnalysis.eloquentAreas.map((area, index) => (
+          {tumorAnalysis.eloquentAreas.map((area: string, index: number) => (
             <div key={index} className="structure-item warning">
               {area}
             </div>
           ))}
-          {tumorAnalysis.vesselInvolvement.map((vessel, index) => (
+          {tumorAnalysis.vesselInvolvement.map((vessel: string, index: number) => (
             <div key={index} className="structure-item danger">
               {vessel}
             </div>

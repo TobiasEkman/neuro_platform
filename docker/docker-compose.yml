@@ -18,16 +18,25 @@ services:
       - "4000:4000"
     depends_on:
       - mongodb
-      - ai_analysis
+      - tumor_analysis
+      - icp_monitoring
       - model_training
-      - clinical_coding
+      - medical_documentation
+      - imaging_data
 
-  ai_analysis:
+  tumor_analysis:
     build:
-      context: ../services/ai_analysis
+      context: ../services/tumor_analysis
       dockerfile: ../docker/flask.Dockerfile
     ports:
-      - "5000:5000"
+      - "5005:5005"
+
+  icp_monitoring:
+    build:
+      context: ../services/icp_monitoring
+      dockerfile: ../docker/flask.Dockerfile
+    ports:
+      - "5006:5006"
 
   model_training:
     build:
@@ -36,16 +45,18 @@ services:
     ports:
       - "5001:5001"
 
-  clinical_coding:
+  medical_documentation:
     build:
-      context: ../services/clinical_coding
+      context: ../services/medical_documentation
       dockerfile: ../docker/flask.Dockerfile
     ports:
       - "5002:5002"
+    volumes:
+      - ./models:/app/models
 
-  dicom_ingestion:
+  imaging_data:
     build:
-      context: ../services/dicom_ingestion
+      context: ../services/imaging_data
       dockerfile: ../docker/flask.Dockerfile
     ports:
       - "5003:5003"
@@ -53,6 +64,17 @@ services:
       - mongodb
     volumes:
       - dicom_data:/data/dicom
+
+  local_inference:
+    build:
+      context: ../services/local_inference
+      dockerfile: ../docker/local_inference.Dockerfile
+    ports:
+      - "5004:5004"
+    volumes:
+      - model_data:/app/data
+    depends_on:
+      - mongodb
 
   mongodb:
     image: mongo:latest
@@ -63,4 +85,5 @@ services:
 
 volumes:
   mongodb_data:
-  dicom_data: 
+  dicom_data:
+  model_data: 
