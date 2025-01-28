@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import axios from 'axios';
 import Patient from '../models/Patient';
-import Study from '../models/Study';
+import { Study } from '../types/Study';
 
 const router = Router();
 

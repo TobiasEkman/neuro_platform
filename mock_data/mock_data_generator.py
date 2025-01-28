@@ -7,6 +7,8 @@ from cryptography.fernet import Fernet
 import random
 from typing import List, Dict, Any
 import uuid
+from pymongo import MongoClient
+from faker import Faker
 
 def generate_icp_readings(hours=24):
     base_icp = 12
@@ -364,6 +366,23 @@ class MockDataGenerator:
             json.dump(mock_data, f, indent=2)
         print("Generated combined mock data file")
 
+def generate_mock_studies(db, num_studies):
+    fake = Faker()
+    for _ in range(num_studies):
+        study = {
+            'study_instance_uid': fake.uuid4(),
+            'patient_id': fake.uuid4(),  # Replace with actual patient IDs if available
+            'study_date': fake.date_time_this_decade(),
+            'study_description': fake.sentence(),
+            'series': [{
+                'series_instance_uid': fake.uuid4(),
+                'series_number': random.randint(1, 10),
+                'series_description': fake.sentence(),
+                'modality': random.choice(['MRI', 'CT', 'fMRI', 'DTI'])
+            }]
+        }
+        db.studies.insert_one(study)
+
 if __name__ == '__main__':
     import sys
     
@@ -379,4 +398,9 @@ if __name__ == '__main__':
         generate_mock_encrypted_model()
 
     generator = MockDataGenerator()
-    generator.save_mock_data() 
+    generator.save_mock_data()
+
+    # Usage
+    client = MongoClient('mongodb://localhost:27017')
+    db = client['neuro_platform']
+    generate_mock_studies(db, 10)  # Generate 10 mock studies 
