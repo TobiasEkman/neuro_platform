@@ -1,18 +1,18 @@
 import React from 'react';
-import { usePatient } from '../../context/PatientContext';
+import { Patient } from '../../types';
 
-export const PatientHeader: React.FC = () => {
-  const { patient } = usePatient();
+interface PatientHeaderProps {
+  patient: Patient;
+}
 
-  if (!patient) return null;
-
+export const PatientHeader: React.FC<PatientHeaderProps> = ({ patient }) => {
   return (
     <div className="patient-header">
-      <h2>{patient.name}</h2>
       <div className="patient-info">
         <span>ID: {patient.id}</span>
-        <span>DOB: {patient.dateOfBirth}</span>
-        <span>Primary Diagnosis: {patient.primaryDiagnosis}</span>
+        <span>Name: {patient.name}</span>
+        <span>Age: {patient.age}</span>
+        <span>Diagnosis: {patient.diagnosis}</span>
       </div>
     </div>
   );

@@ -1,3 +1,4 @@
+import React, { useState } from 'react';
 import { 
   VitalSigns, 
   CrisisType, 
@@ -10,16 +11,26 @@ import {
 import SimulatorPreopPlanning from './SimulatorPreopPlanning';
 
 export const NeurosurgerySimulator: React.FC = () => {
-  // ... component code ...
+  const [phase, setPhase] = useState<SimulationPhase>(SimulationPhase.PREOP);
 
-  case SimulationPhase.PREOP:
-    return (
-      <SimulatorPreopPlanning
-        onComplete={handlePhaseComplete}
-        patientInfo={patientInfo}
-      />
-    );
+  const handlePhaseComplete = () => {
+    // Handle phase completion logic
+  };
+
+  switch (phase) {
+    case SimulationPhase.PREOP:
+      return (
+        <SimulatorPreopPlanning
+          onComplete={handlePhaseComplete}
+        />
+      );
+    // Add other cases
+    default:
+      return <div>Unknown phase</div>;
+  }
 };
+
+export default NeurosurgerySimulator;
 
 // Direct API calls instead of using simulatorApi
 const fetchProcedures = async () => {

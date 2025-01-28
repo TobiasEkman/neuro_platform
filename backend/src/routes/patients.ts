@@ -54,7 +54,7 @@ router.get('/:id/journal', async (req, res) => {
                     patient_name: patient.name,
                     patient_id: patient.id,
                 },
-                studies: studies.map(s => ({
+                studies: studies.map((s: Study) => ({
                     study_description: s.description,
                     study_date: s.date
                 }))

@@ -43,4 +43,41 @@ export interface DemoContextType {
   patient: Patient;
   icpReadings: ICPReading[];
   tumorAnalysis: TumorAnalysis;
+}
+
+export enum SimulationPhase {
+  PREOP = 'PREOP',
+  OPERATION = 'OPERATION',
+  POSTOP = 'POSTOP'
+}
+
+export interface Measurement {
+  id: string;
+  type: 'distance' | 'angle' | 'area';
+  value: number;
+  unit: string;
+}
+
+export interface Tool {
+  id: string;
+  name: string;
+  type: string;
+}
+
+export interface SurgicalStep {
+  id: string;
+  name: string;
+  completed: boolean;
+}
+
+export interface CrisisType {
+  id: string;
+  name: string;
+  severity: 'low' | 'medium' | 'high';
+}
+
+export interface Medication {
+  id: string;
+  name: string;
+  dosage: string;
 } 

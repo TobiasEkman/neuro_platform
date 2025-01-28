@@ -1,23 +1,55 @@
 version: '3.8'
 
 services:
-  local_inference:
+  frontend:
     build:
-      context: ../services/local_inference
-      dockerfile: ../docker/local_inference.Dockerfile
+      context: ../frontend
+      dockerfile: ../docker/frontend.Dockerfile
     ports:
-      - "5004:5004"
+      - "3000:3000"
     volumes:
-      - ../services/local_inference:/app
-      - model_data:/app/data
-      # Add volume for static files
-      - ../services/local_inference/static:/app/static
+      # Mount source code for hot reloading
+      - ../frontend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+    command: npm start  # Uses React's development server with hot reloading
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: ../docker/backend.Dockerfile
+    ports:
+      - "4000:4000"
+    volumes:
+      # Mount source code for hot reloading
+      - ../backend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+    command: npm run dev  # Uses nodemon for auto-reloading
+
+  imaging_data:
+    build:
+      context: ../services/imaging_data
+      dockerfile: ../docker/flask.Dockerfile
+    ports:
+      - "5003:5003"
+    volumes:
+      # Mount source code and DICOM data
+      - ../services/imaging_data:/app
+      - ../dicom_data:/data/dicom
     environment:
       - FLASK_ENV=development
       - FLASK_DEBUG=1
-      # Add configurable paths for development
-      - ENCRYPTED_MODEL_PATH=./data/model_encrypted.json
-      - ENCRYPTED_BIN_DIR=./data/encrypted_bin_files
+    command: flask run --host=0.0.0.0 --port=5003 --reload
+
+  mongodb:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
 
 volumes:
-  model_data: 
+  mongodb_data: 
