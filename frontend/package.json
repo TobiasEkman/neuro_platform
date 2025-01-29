@@ -3,25 +3,26 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
+    "@react-three/drei": "^9.92.7",
+    "@react-three/fiber": "^8.15.12",
     "@tensorflow/tfjs": "^4.15.0",
     "@types/node": "^16.18.0",
     "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.10.0",
-    "react-chartjs-2": "^5.2.0",
-    "chart.js": "^4.3.0",
-    "three": "^0.160.0",
-    "@types/three": "^0.150.0",
-    "typescript": "^4.9.5",
-    "react-scripts": "5.0.1",
     "@types/react-chartjs-2": "^2.5.7",
-    "@react-three/drei": "^9.92.7",
-    "@react-three/fiber": "^8.15.12",
-    "styled-components": "^6.1.1",
+    "@types/react-dom": "^18.2.0",
     "@types/styled-components": "^5.1.34",
-    "three-mesh-bvh": "^0.8.0"
+    "@types/three": "^0.150.0",
+    "chart.js": "^4.3.0",
+    "react": "^18.2.0",
+    "react-chartjs-2": "^5.2.0",
+    "react-dom": "^18.2.0",
+    "react-icons": "^5.4.0",
+    "react-router-dom": "^6.10.0",
+    "react-scripts": "5.0.1",
+    "styled-components": "^6.1.1",
+    "three": "^0.160.0",
+    "three-mesh-bvh": "^0.8.0",
+    "typescript": "^4.9.5"
   },
   "scripts": {
     "start": "react-scripts start",
@@ -46,5 +47,6 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
-  }
-} 
+  },
+  "proxy": "http://localhost:4000"
+}

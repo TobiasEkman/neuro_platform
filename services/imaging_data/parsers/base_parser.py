@@ -1,5 +1,5 @@
-from ..utils.mongo_utils import get_or_create_document
-from ..utils.dicom_config import DicomConfig
+from utils.mongo_utils import get_or_create_document
+from utils.dicom_config import DicomConfig
 import pydicom
 
 class BaseParser:
@@ -97,9 +97,7 @@ class BaseParser:
             'sop_instance_uid': self._get_tag_value(dataset, self.config.get_tag('instance', 'uid')),
             'series_instance_uid': series_instance_uid,
             'instance_number': int(self._get_tag_value(dataset, self.config.get_tag('instance', 'number')) or 0),
-            'file_path': file_path,
-            'position': float(self._get_tag_value(dataset, self.config.get_tag('instance', 'position')) or 0),
-            'thickness': float(self._get_tag_value(dataset, self.config.get_tag('instance', 'thickness')) or 0),
+            'file_path': file_path,        # Store the path to the DICOM file
             'rows': int(self._get_tag_value(dataset, self.config.get_tag('instance', 'rows')) or 0),
             'columns': int(self._get_tag_value(dataset, self.config.get_tag('instance', 'columns')) or 0),
             'pixel_spacing': self._get_tag_value(dataset, self.config.get_tag('instance', 'pixel_spacing'))

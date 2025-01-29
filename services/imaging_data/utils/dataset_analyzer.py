@@ -1,6 +1,6 @@
 import os
 from collections import defaultdict
-from ..preprocessors.mgmt_preprocessor import MGMTPreprocessor
+from preprocessors.mgmt_preprocessor import MGMTPreprocessor
 
 class DatasetAnalyzer:
     def __init__(self, db):

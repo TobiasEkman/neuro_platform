@@ -7,11 +7,12 @@ export interface DicomStudy {
 }
 
 export interface DicomSeries {
-    series_instance_uid: string;
-    study_instance_uid: string;
-    series_number: number;
-    series_description: string;
+    seriesUID: string;
+    studyUID: string;
     modality: string;
+    description: string;
+    numberOfImages: number;
+    baseDirectory: string;  // Base directory for all images in series
 }
 
 export interface DicomInstance {
@@ -22,14 +23,15 @@ export interface DicomInstance {
 }
 
 export interface DicomImage {
-    instanceUid: string;
-    pixelData: Float32Array;
+    instanceUID: string;
+    seriesUID: string;
+    studyUID: string;
+    filePath: string;      // Path to the actual DICOM file
     rows: number;
     columns: number;
     windowCenter: number;
     windowWidth: number;
-    pixelSpacing?: [number, number];
-    sliceLocation?: number;
+    pixelSpacing: [number, number];
 }
 
 export interface DicomImportResult {
@@ -37,7 +39,5 @@ export interface DicomImportResult {
     studies: {
         patient_id: string;
         study_instance_uid: string;
-        series_instance_uid: string;
-        sop_instance_uid: string;
     }[];
 } 

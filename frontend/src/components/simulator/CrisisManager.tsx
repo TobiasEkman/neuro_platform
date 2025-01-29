@@ -1,6 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
-import { CrisisType, Medication } from '../../../types';
+import { CrisisType, Medication } from '../../types/simulator';
 
 const CrisisPanel = styled.div`
   position: absolute;

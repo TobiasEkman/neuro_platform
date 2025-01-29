@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { useDemo } from '../context/DemoContext';
-import '../styles/PreopPlanning.css';
+import { useDemo } from '../../context/DemoContext';
+import './styles/PreopPlanning.css';
 
 interface TumorAnalysis {
   eloquentAreas: string[];

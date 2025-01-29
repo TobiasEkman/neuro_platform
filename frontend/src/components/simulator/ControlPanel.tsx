@@ -1,6 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
-import { Tool, SurgicalStep } from '../../../types';
+import { Tool, SurgicalStep } from '../../types/simulator';
 
 const Panel = styled.div`
   position: absolute;

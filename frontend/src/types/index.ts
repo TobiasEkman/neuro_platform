@@ -3,8 +3,6 @@ export interface Patient {
   name: string;
   age: number;
   diagnosis: string;
-  studyDate: Date;
-  images: ImageStudy[];
 }
 
 export interface ImageStudy {
@@ -39,45 +37,56 @@ export interface TumorAnalysis {
   predictedResectionRate: number;
 }
 
+export interface Measurement {
+  id: string;
+  type: 'distance' | 'angle' | 'area';
+  value: number;
+  unit: string;
+  points: { x: number; y: number }[];
+}
+
+export interface DicomImage {
+  id: string;
+  url: string;
+}
+
+export type Tool = 'measure' | 'window' | 'zoom' | 'pan';
+export type SurgicalStep = 'planning' | 'execution' | 'closure';
+
+export enum CrisisType {
+  BLEEDING = 'bleeding',
+  PRESSURE = 'pressure',
+  CARDIAC = 'cardiac'
+}
+
+export interface Medication {
+  name: string;
+  dosage: string;
+}
+
+export interface PatientInfo {
+  id: string;
+  name: string;
+  condition: string;
+}
+
+export interface PostopPlan {
+  monitoring: string[];
+  medications: Medication[];
+}
+
 export interface DemoContextType {
-  patient: Patient;
-  icpReadings: ICPReading[];
-  tumorAnalysis: TumorAnalysis;
+  isDemoMode: boolean;
+  toggleDemoMode: () => void;
+  demoData: {
+    patient: Patient;
+    icpReadings: ICPReading[];
+    tumorAnalysis: TumorAnalysis;
+  };
 }
 
 export enum SimulationPhase {
   PREOP = 'PREOP',
   OPERATION = 'OPERATION',
   POSTOP = 'POSTOP'
-}
-
-export interface Measurement {
-  id: string;
-  type: 'distance' | 'angle' | 'area';
-  value: number;
-  unit: string;
-}
-
-export interface Tool {
-  id: string;
-  name: string;
-  type: string;
-}
-
-export interface SurgicalStep {
-  id: string;
-  name: string;
-  completed: boolean;
-}
-
-export interface CrisisType {
-  id: string;
-  name: string;
-  severity: 'low' | 'medium' | 'high';
-}
-
-export interface Medication {
-  id: string;
-  name: string;
-  dosage: string;
 } 

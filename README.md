@@ -15,7 +15,14 @@ CORE COMPONENTS
   * 3D tumor visualization using Three.js
   * Surgical approach planning interface
   * ICD coding assistance
-  * DICOM data management interface
+- DICOM Management:
+  * Advanced DICOM viewer with MPR support
+  * Window/level presets and controls
+  * Measurement tools (distance, angle, area)
+  * DICOM import from folders and DICOMDIR
+  * Series organization and metadata display
+  * Real-time volume rendering
+  * Debug and validation tools
 - Shared Components:
   * PatientHeader: Consistent patient info display
   * ServiceStatus: Service health monitoring
@@ -27,6 +34,8 @@ CORE COMPONENTS
   * Shared CSS components
   * Consistent theming
   * Responsive layouts
+  * Styled-components integration
+  * Global theme system with CSS variables
 - Technologies: React 18, TypeScript, Chart.js, Three.js
 
 2. Main API (Node.js + Express)
@@ -69,6 +78,9 @@ CORE COMPONENTS
   * Clinical text analysis
   * Journal generation
   * Voice transcription
+  * Real-time audio transcription with WebRTC
+  * Streaming journal generation
+  * Interactive coding suggestions
 - Technologies: Flask, Transformers, PyTorch, Whisper
 
 7. Imaging Data Service (Flask)
@@ -79,9 +91,14 @@ CORE COMPONENTS
   * DICOM metadata extraction
   * Advanced search functionality
   * Image data organization
+  * MPR (Multiplanar Reconstruction) support
+  * Volume data extraction and processing
+  * Window/level presets management
+  * DICOM validation and debugging tools
+  * Measurement calibration support
 - Technologies: Flask, PyDICOM, PyMongo
 
-8. Simulator Service (Flask)
+9. Simulator Service (Flask)
 - Neurosurgical simulation features:
   * Session management and tracking
   * Performance metrics collection
@@ -91,7 +108,7 @@ CORE COMPONENTS
   * Medication management
 - Technologies: Flask, PyMongo
 
-8. Data Storage
+9. Data Storage
 - MongoDB:
   * Patient metadata
   * Analysis results
@@ -132,6 +149,13 @@ API ENDPOINTS
 - /api/dicom/parse/folder: Parse DICOM folder
 - /api/dicom/parse/dicomdir: Parse DICOMDIR file
 - /api/search: Fuzzy search across DICOM data
+- /api/dicom/list: List all DICOM studies/series
+- /api/dicom/series/{seriesId}: Get series metadata
+- /api/dicom/volume/{seriesId}: Get volume data for MPR
+- /api/dicom/image/{imageId}: Get individual DICOM image
+- /api/dicom/metadata/{seriesId}: Get detailed series metadata
+- /api/dicom/window-presets: Get window/level presets
+- /api/dicom/validate/{seriesId}: Validate DICOM data
 
 7. Simulator Service (port 5007)
 - /api/simulator/*: Simulator endpoints
@@ -215,6 +239,9 @@ DEPENDENCIES
 - Three.js 0.150
 - Chart.js 4.3
 - TensorFlow.js 4.2
+- Styled-components 6.1
+- React Router DOM 6.10
+- React Icons 5.4
 
 2. Backend:
 - Node.js 16+
@@ -358,3 +385,13 @@ Integrated workflow for MGMT methylation status prediction:
    - Automated sequence identification
    - Standardized data normalization
    - Confidence-scored predictions
+
+DEVELOPMENT SETUP
+
+Environment Setup:
+1. Copy .env.example to .env in both frontend and backend directories
+2. Configure environment variables for:
+   * API endpoints
+   * Database connections
+   * Service ports
+   * Security keys

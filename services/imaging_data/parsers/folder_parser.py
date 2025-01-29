@@ -1,6 +1,6 @@
 import os
 import pydicom
-from .base_parser import BaseParser
+from parsers.base_parser import BaseParser
 
 class FolderParser(BaseParser):
     def __init__(self, db):

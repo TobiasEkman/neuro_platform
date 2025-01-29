@@ -1,11 +1,11 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import axios from 'axios';
 import Patient from '../models/Patient';
-import { Study } from '../types/Study';
+import Study from '../models/Study';
 
 const router = Router();
 
-router.get('/', async (req, res) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
     const patients = await Patient.find();
     res.json(patients);
@@ -14,7 +14,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', async (req: Request, res: Response) => {
   try {
     const patient = await Patient.findById(req.params.id);
     if (!patient) {
@@ -26,7 +26,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', async (req: Request, res: Response) => {
   const patient = new Patient(req.body);
   try {
     const newPatient = await patient.save();
@@ -36,7 +36,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.get('/:id/journal', async (req, res) => {
+router.get('/:id/journal', async (req: Request, res: Response) => {
     try {
         const patient = await Patient.findById(req.params.id);
         if (!patient) {
@@ -51,12 +51,16 @@ router.get('/:id/journal', async (req, res) => {
             'http://clinical_coding:5002/api/journal/generate',
             {
                 patient: {
-                    patient_name: patient.name,
-                    patient_id: patient.id,
+                    name: patient.name,
+                    id: patient.id,
+                    age: patient.age,
+                    diagnosis: patient.diagnosis
                 },
-                studies: studies.map((s: Study) => ({
-                    study_description: s.description,
-                    study_date: s.date
+                studies: studies.map(s => ({
+                    study_instance_uid: s.study_instance_uid,
+                    study_description: s.study_description,
+                    study_date: s.study_date,
+                    series: s.series
                 }))
             },
             { responseType: 'stream' }

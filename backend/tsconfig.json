@@ -7,8 +7,24 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "typeRoots": [
+      "./src/types",
+      "./node_modules/@types"
+    ],
+    "types": [
+      "node",
+      "express",
+      "jsonwebtoken"
+    ],
+    "baseUrl": "./src"
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules"]
+  "include": [
+    "src/**/*",
+    "src/types/**/*.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 } 

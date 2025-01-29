@@ -1,5 +1,5 @@
 import React from 'react';
-import { Patient } from '../../types';
+import { Patient } from '../../types/medical';
 
 interface PatientHeaderProps {
   patient: Patient;

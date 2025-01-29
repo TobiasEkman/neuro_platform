@@ -1,36 +1,32 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter } from 'react-router-dom';
 import { DemoProvider } from './context/DemoContext';
 import Dashboard from './components/Dashboard';
-import PreopPlanning from './components/PreopPlanning';
-import ICPMonitoring from './components/ICPMonitoring';
-import TumorAnalysis from './components/TumorAnalysis';
-import DicomManager from './components/DicomManager';
+import PreopPlanning from './components/PreopPlanning/PreopPlanning';
+import ICPMonitoring from './components/ICPMonitoring/ICPMonitoring';
+import TumorAnalysis from './components/TumorAnalysis/TumorAnalysis';
+import DicomManager from './components/DicomManager/DicomManager';
 import LocalInference from './components/LocalInference';
-import { Navigation } from './components/Navigation';
+import Navigation from './components/Navigation';
 import { NeurosurgerySimulator } from './components/simulator/NeurosurgerySimulator';
+import DicomViewer from './components/DicomViewer';
+import Layout from './components/Layout';
 import './styles/App.css';
+import { ThemeProvider } from 'styled-components';
+import { theme } from './styles/theme';
+import { GlobalStyle } from './styles/global';
+import { DicomDebug } from './components/DicomViewer/DicomDebug';
 
-const App: React.FC = () => {
+export const App: React.FC = () => {
   return (
-    <DemoProvider>
+    <ThemeProvider theme={theme}>
+      <GlobalStyle />
       <BrowserRouter>
-        <div className="app-container">
-          <Navigation />
-          <main className="main-content">
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/preop-planning" element={<PreopPlanning />} />
-              <Route path="/icp-monitoring" element={<ICPMonitoring />} />
-              <Route path="/tumor-analysis" element={<TumorAnalysis />} />
-              <Route path="/dicom-manager" element={<DicomManager />} />
-              <Route path="/local-inference" element={<LocalInference />} />
-              <Route path="/simulator" element={<NeurosurgerySimulator />} />
-            </Routes>
-          </main>
-        </div>
+        <DemoProvider>
+          <Layout />
+        </DemoProvider>
       </BrowserRouter>
-    </DemoProvider>
+    </ThemeProvider>
   );
 };
 

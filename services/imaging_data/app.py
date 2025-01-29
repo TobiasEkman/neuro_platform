@@ -1,16 +1,37 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from pymongo import MongoClient
-from .parsers.folder_parser import FolderParser
-from .parsers.dicomdir_parser import DicomdirParser
-from .utils.mongo_utils import init_mongo_indexes
+from pymongo.errors import ServerSelectionTimeoutError
+from parsers.folder_parser import FolderParser
+from parsers.dicomdir_parser import DicomdirParser
+from utils.mongo_utils import init_mongo_indexes
 from utils.search import fuzzy_search
-from .utils.dataset_analyzer import DatasetAnalyzer
+from utils.dataset_analyzer import DatasetAnalyzer
+import pydicom
+import numpy as np
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 
-# Initialize MongoDB connection
-client = MongoClient("mongodb://mongodb:27017")
-db = client["neuro_platform"]
+# Initialize MongoDB connection with error handling
+try:
+    # For Windows, use this connection string
+    client = MongoClient("mongodb://127.0.0.1:27017", serverSelectionTimeoutMS=5000)
+    # Verify connection
+    client.server_info()
+    db = client["neuro_platform"]
+    print("Successfully connected to MongoDB")
+except ServerSelectionTimeoutError as e:
+    print(f"Failed to connect to MongoDB: {e}")
+    db = None
+
+@app.before_request
+def check_db_connection():
+    if db is None:
+        return jsonify({
+            'error': 'Database connection not available',
+            'message': 'Please ensure MongoDB is running'
+        }), 503
 
 # Initialize indexes on startup
 init_mongo_indexes(db)
@@ -113,6 +134,112 @@ def analyze_dataset():
         analyzer = DatasetAnalyzer(db)
         analysis = analyzer.analyze_dataset()
         return jsonify(analysis)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/dicom/image/<instance_uid>', methods=['GET'])
+def get_image(instance_uid):
+    try:
+        # Get file path from MongoDB
+        instance = db.instances.find_one({'sop_instance_uid': instance_uid})
+        if not instance:
+            return jsonify({'error': 'Instance not found'}), 404
+
+        # Read DICOM file
+        ds = pydicom.dcmread(instance['file_path'])
+        
+        # Set CORS headers
+        headers = {
+            'Access-Control-Allow-Origin': '*',
+            'Content-Type': 'application/dicom'
+        }
+        
+        # Return the file with proper headers
+        return send_file(
+            instance['file_path'],
+            mimetype='application/dicom',
+            as_attachment=True,
+            download_name=f"{instance_uid}.dcm",
+            headers=headers
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/dicom/test', methods=['GET'])
+def test_connection():
+    if db is None:
+        return jsonify({
+            'status': 'error',
+            'message': 'MongoDB not connected'
+        }), 503
+    
+    try:
+        # Test MongoDB connection
+        db.command('ping')
+        return jsonify({
+            'status': 'success',
+            'message': 'Connected to MongoDB',
+            'database': db.name
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/dicom/series/<series_id>', methods=['GET'])
+def get_series(series_id):
+    try:
+        # Get series from MongoDB
+        series = db.series.find_one({'series_instance_uid': series_id})
+        if not series:
+            return jsonify({'error': 'Series not found'}), 404
+            
+        return jsonify(series)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/dicom/stats', methods=['GET'])
+def get_stats():
+    try:
+        stats = {
+            'patients': db.patients.count_documents({}),
+            'studies': db.studies.count_documents({}),
+            'series': db.series.count_documents({}),
+            'instances': db.instances.count_documents({})
+        }
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/dicom/list', methods=['GET'])
+def list_data():
+    try:
+        patients = list(db.patients.find({}, {'_id': 0}))
+        
+        # Get studies for each patient
+        for patient in patients:
+            patient['studies'] = list(db.studies.find(
+                {'patient_id': patient['patient_id']}, 
+                {'_id': 0}
+            ))
+            
+            # Get series for each study
+            for study in patient['studies']:
+                study['series'] = list(db.series.find(
+                    {'study_instance_uid': study['study_instance_uid']},
+                    {'_id': 0}
+                ))
+
+        return jsonify({
+            'patients': patients,
+            'stats': {
+                'patients': len(patients),
+                'studies': db.studies.count_documents({}),
+                'series': db.series.count_documents({}),
+                'instances': db.instances.count_documents({})
+            }
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

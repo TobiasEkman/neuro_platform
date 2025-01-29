@@ -1,5 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
+import { PostopPlan } from '../../types/simulator';
 
 const Container = styled.div`
   padding: 40px;
@@ -79,16 +80,8 @@ const InfoPanel = styled.div`
 
 interface PostopCareProps {
   onComplete: () => void;
-  postopData: {
-    recoveryPlan: {
-      mobilization: string;
-      nutrition: string;
-      woundCare: string;
-      painManagement: string;
-      monitoring: string[];
-    };
-  };
-  setPostopData: (data: any) => void;
+  postopData: PostopPlan;
+  setPostopData: (data: PostopPlan) => void;
 }
 
 const PostopCare: React.FC<PostopCareProps> = ({ 
@@ -97,13 +90,13 @@ const PostopCare: React.FC<PostopCareProps> = ({
   setPostopData 
 }) => {
   const handleChange = (field: string, value: string) => {
-    setPostopData(prev => ({
-      ...prev,
+    setPostopData({
+      ...postopData,
       recoveryPlan: {
-        ...prev.recoveryPlan,
+        ...postopData.recoveryPlan,
         [field]: value
       }
-    }));
+    } as PostopPlan);
   };
 
   const isComplete = () => {
@@ -127,7 +120,7 @@ const PostopCare: React.FC<PostopCareProps> = ({
             <option value="">Select mobilization plan...</option>
             <option value="early">Early Mobilization (within 24h)</option>
             <option value="gradual">Gradual Mobilization (2-3 days)</option>
-            <option value="delayed">Delayed Mobilization (>3 days)</option>
+            <option value="delayed">Delayed Mobilization (3+ days)</option>
           </Select>
         </FormGroup>
 

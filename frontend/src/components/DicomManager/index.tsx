@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { DicomImportResult } from '../types/dicom';
-import '../styles/DicomManager.css';
+import { DicomImportResult } from '../../types/dicom';
+import './styles/DicomManager.css';
+import { dicomService } from '../../services/dicomService';
 
 const DicomManager: React.FC = () => {
     const [folderPath, setFolderPath] = useState('');
@@ -10,19 +11,7 @@ const DicomManager: React.FC = () => {
 
     const importFolder = async () => {
         try {
-            const response = await fetch('/api/dicom/parse/folder', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ folderPath }),
-            });
-            
-            if (!response.ok) {
-                throw new Error('Failed to import DICOM folder');
-            }
-            
-            const result = await response.json();
+            const result = await dicomService.importFolder(folderPath);
             setImportResult(result);
             setError(null);
         } catch (err) {

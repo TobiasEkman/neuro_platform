@@ -1,6 +1,6 @@
 import numpy as np
-from ..utils.dicom_config import DicomConfig
-from ..parsers.base_parser import BaseParser
+from utils.dicom_config import DicomConfig
+from parsers.base_parser import BaseParser
 
 class MGMTPreprocessor(BaseParser):
     """Preprocesses MRI sequences specifically for MGMT prediction"""

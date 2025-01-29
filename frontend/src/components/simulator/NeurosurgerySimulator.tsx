@@ -1,30 +1,93 @@
 import React, { useState } from 'react';
-import { 
-  VitalSigns, 
-  CrisisType, 
-  Medication,
-  SimulationPhase,
-  PatientInfo,
-  PostopPlan
-} from '../../../types'; 
-
-import SimulatorPreopPlanning from './SimulatorPreopPlanning';
+import { Canvas } from '@react-three/fiber';
+import { SimulationPhase, CrisisType } from '../../types/simulator';
+import PreopPlanning from './PreopPlanning';
+import BrainModel from './BrainModel';
+import SurgicalTools from './SurgicalTools';
+import VitalMonitor from './VitalMonitor';
+import ControlPanel from './ControlPanel';
+import CrisisManager from './CrisisManager';
+import PostopCare from './PostopCare';
 
 export const NeurosurgerySimulator: React.FC = () => {
   const [phase, setPhase] = useState<SimulationPhase>(SimulationPhase.PREOP);
+  const [selectedTool, setSelectedTool] = useState<string | null>(null);
+  const [vitalSigns, setVitalSigns] = useState({
+    bp: { systolic: 120, diastolic: 80 },
+    heartRate: 75,
+    o2sat: 98,
+    icp: 10
+  });
+  const [activeCrisis, setActiveCrisis] = useState<CrisisType | null>(null);
 
   const handlePhaseComplete = () => {
-    // Handle phase completion logic
+    switch (phase) {
+      case SimulationPhase.PREOP:
+        setPhase(SimulationPhase.OPERATION);
+        break;
+      case SimulationPhase.OPERATION:
+        setPhase(SimulationPhase.POSTOP);
+        break;
+      case SimulationPhase.POSTOP:
+        // Handle simulation completion
+        break;
+    }
   };
 
   switch (phase) {
     case SimulationPhase.PREOP:
       return (
-        <SimulatorPreopPlanning
+        <PreopPlanning
           onComplete={handlePhaseComplete}
+          patientInfo={{
+            age: 45,
+            gender: "male",
+            medicalHistory: ["Hypertension", "Diabetes"]
+          }}
         />
       );
-    // Add other cases
+    case SimulationPhase.OPERATION:
+      return (
+        <>
+          <VitalMonitor vitalSigns={vitalSigns} activeCrisis={activeCrisis} />
+          <ControlPanel 
+            selectedTool={selectedTool}
+            setSelectedTool={setSelectedTool}
+            currentStep={1}
+          />
+          {activeCrisis && (
+            <CrisisManager 
+              crisisType={activeCrisis}
+              onMedicationAdminister={() => {}}
+              medications={[]}
+            />
+          )}
+          <div style={{ width: '100%', height: '100vh' }}>
+            <Canvas>
+              <ambientLight intensity={0.5} />
+              <pointLight position={[10, 10, 10]} />
+              <BrainModel />
+              <SurgicalTools selectedTool={selectedTool} brainMesh={null} />
+            </Canvas>
+          </div>
+        </>
+      );
+    case SimulationPhase.POSTOP:
+      return (
+        <PostopCare 
+          onComplete={handlePhaseComplete}
+          postopData={{
+            recoveryPlan: {
+              mobilization: "",
+              nutrition: "",
+              woundCare: "",
+              painManagement: "",
+              monitoring: []
+            }
+          }}
+          setPostopData={() => {}}
+        />
+      );
     default:
       return <div>Unknown phase</div>;
   }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import * as tf from '@tensorflow/tfjs';
-import '../styles/LocalInference.css';
+import './styles/LocalInference.css';
 
 interface PredictionResult {
     label: string;

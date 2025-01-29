@@ -1,10 +1,16 @@
 import React from 'react';
-import { useDemo } from '../context/DemoContext';
+import { useDemo } from '../../context/DemoContext';
 import '../styles/Dashboard.css';
+import ICPMonitoring from '../ICPMonitoring/ICPMonitoring';
 
 const Dashboard: React.FC = () => {
   const { patient, icpReadings, tumorAnalysis } = useDemo();
   const latestICP = icpReadings[icpReadings.length - 1];
+
+  const icpData = [
+    { timestamp: new Date(), value: 15, location: 'Right frontal' },
+    // ... more readings
+  ];
 
   return (
     <div className="dashboard">
@@ -44,6 +50,10 @@ const Dashboard: React.FC = () => {
             <span>{tumorAnalysis.predictedResectionRate}%</span>
           </div>
         </div>
+      </div>
+
+      <div>
+        <ICPMonitoring readings={icpData} />
       </div>
     </div>
   );

@@ -1,8 +1,13 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { dicomService } from '../../services/dicomService';
 
-interface MPRViewerProps {
+export interface MPRViewerProps {
   seriesId: string;
   orientation: 'axial' | 'sagittal' | 'coronal';
+  windowCenter: number;
+  windowWidth: number;
+  currentSlice: number;
+  onSliceChange: (slice: number) => void;
 }
 
 interface Dimensions {
@@ -11,16 +16,21 @@ interface Dimensions {
   depth: number;
 }
 
-export const MPRViewer: React.FC<MPRViewerProps> = ({ seriesId, orientation }) => {
+export const MPRViewer: React.FC<MPRViewerProps> = ({
+  seriesId,
+  orientation,
+  windowCenter,
+  windowWidth,
+  currentSlice,
+  onSliceChange
+}) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [volumeData, setVolumeData] = useState<Float32Array | null>(null);
   const [dimensions, setDimensions] = useState<Dimensions>({ width: 0, height: 0, depth: 0 });
-  const [currentSlice, setCurrentSlice] = useState(0);
 
   const loadVolumeData = useCallback(async () => {
     try {
-      const response = await fetch(`/api/series/${seriesId}/volume`);
-      const data = await response.json();
+      const data = await dicomService.getVolumeData(seriesId);
       setVolumeData(new Float32Array(data.volume));
       setDimensions(data.dimensions);
     } catch (error) {
@@ -127,9 +137,13 @@ export const MPRViewer: React.FC<MPRViewerProps> = ({ seriesId, orientation }) =
           min={0}
           max={getMaxSlice()}
           value={currentSlice}
-          onChange={(e) => setCurrentSlice(parseInt(e.target.value))}
+          onChange={(e) => onSliceChange(Number(e.target.value))}
         />
         <span>{orientation.toUpperCase()}</span>
+      </div>
+      <div className="slice-indicator">
+        <div className="position-line" />
+        <div className="position-label">{orientation}</div>
       </div>
     </div>
   );

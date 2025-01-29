@@ -21,7 +21,11 @@ export interface SurgicalStep {
   validTools: string[];
 }
 
-export type CrisisType = 'bleeding' | 'seizure' | 'brain_swelling' | null;
+export enum CrisisType {
+  BLEEDING = 'bleeding',
+  SEIZURE = 'seizure',
+  BRAIN_SWELLING = 'brain_swelling'
+}
 
 export interface Medication {
   id: string;
@@ -30,9 +34,25 @@ export interface Medication {
   timestamp: number;
 }
 
+export interface PatientInfo {
+  age: number;
+  gender: string;
+  medicalHistory: string[];
+}
+
+export interface PostopPlan {
+  recoveryPlan: {
+    mobilization: string;
+    nutrition: string;
+    woundCare: string;
+    painManagement: string;
+    monitoring: string[];
+  };
+}
+
 export enum SimulationPhase {
-  PREOP = 'preop',
-  SURGERY = 'surgery',
-  POSTOP = 'postop',
+  PREOP = 'PREOP',
+  OPERATION = 'OPERATION',
+  POSTOP = 'POSTOP',
   DIAGNOSIS = 'diagnosis'
 } 

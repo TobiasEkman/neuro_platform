@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState } from 'react';
-import { DemoContextType } from '../types';
+import type { DemoContextType } from './types/demo';
 import { generateDemoData } from '../utils/demoData';
 
 const DemoContext = createContext<DemoContextType | null>(null);
