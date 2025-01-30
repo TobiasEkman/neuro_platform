@@ -28,7 +28,37 @@ export interface ICPReading {
   timestamp: Date;
   value: number;
   location: string;
-  waveform?: number[];
+}
+
+export interface CTFindings {
+  edema_level: 'none' | 'mild' | 'moderate' | 'severe';
+  midline_shift: number;  // in millimeters
+  ventricle_compression: boolean;
+  hemorrhage_present: boolean;
+  hemorrhage_volume?: number;  // in milliliters
+}
+
+export interface VitalSigns {
+  blood_pressure_systolic: number;
+  blood_pressure_diastolic: number;
+  heart_rate: number;
+  respiratory_rate: number;
+  oxygen_saturation: number;
+  temperature: number;
+}
+
+export interface ICPPrediction {
+  predictions: number[];
+  riskFactors: {
+    trending_up: boolean;
+    current_icp: number;
+    compliance_decreasing: boolean;
+  };
+  recommendedActions: {
+    priority: 'HIGH' | 'MEDIUM' | 'LOW';
+    action: string;
+    details: string;
+  }[];
 }
 
 export interface TumorAnalysis {
@@ -37,4 +67,14 @@ export interface TumorAnalysis {
   eloquentAreas: string[];
   vesselInvolvement: string[];
   predictedResectionRate: number;
+}
+
+export interface DicomStudy {
+  id: string;
+  type: 'MRI' | 'CT' | 'fMRI' | 'DTI';
+  date: Date;
+  study_instance_uid: string;
+  patient_id: string;
+  study_description?: string;
+  series?: DicomSeries[];
 } 

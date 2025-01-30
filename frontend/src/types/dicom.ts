@@ -4,6 +4,8 @@ export interface DicomStudy {
     study_date: string;
     study_time: string;
     study_description: string;
+    type: 'MRI' | 'CT' | 'fMRI' | 'DTI';
+    date: Date;
 }
 
 export interface DicomSeries {

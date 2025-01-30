@@ -2,6 +2,8 @@ import React from 'react';
 import { useDemo } from '../../context/DemoContext';
 import '../styles/Dashboard.css';
 import ICPMonitoring from '../ICPMonitoring/ICPMonitoring';
+import { FaBrain, FaChartLine } from 'react-icons/fa';
+import QuickAction from '../QuickAction/QuickAction';
 
 const Dashboard: React.FC = () => {
   const { patient, icpReadings, tumorAnalysis } = useDemo();
@@ -55,6 +57,20 @@ const Dashboard: React.FC = () => {
       <div>
         <ICPMonitoring readings={icpData} />
       </div>
+
+      <QuickAction
+        icon={<FaBrain />}
+        title="Local Inference"
+        description="Run secure local model inference"
+        to="/inference"
+      />
+
+      <QuickAction
+        icon={<FaChartLine />}
+        title="ICP Monitoring"
+        description="Real-time ICP monitoring and predictions"
+        to="/icp-monitoring"
+      />
     </div>
   );
 };

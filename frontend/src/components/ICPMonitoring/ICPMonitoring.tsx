@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -11,7 +11,10 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import styled from 'styled-components';
-import { ICPReading } from '../../types/medical';
+import { ICPReading, ICPPrediction } from '../../types/medical';
+import { icpService } from '../../services/icpService';
+import { usePatient } from '../../hooks/usePatient';
+import { useDicomData } from '../../hooks/useDicomData';
 
 // Register Chart.js components
 ChartJS.register(
@@ -24,82 +27,195 @@ ChartJS.register(
   Legend
 );
 
-interface ICPMonitoringProps {
-  readings?: {
-    timestamp: Date;
-    value: number;
-    location: string;
-  }[];
+interface Props {
+  patientId: string;
 }
 
-const ICPMonitoring: React.FC<ICPMonitoringProps> = ({ readings = [] }) => {
+export const ICPMonitoring: React.FC<Props> = ({ patientId }) => {
+  const [readings, setReadings] = useState<ICPReading[]>([]);
+  const [predictions, setPredictions] = useState<ICPPrediction | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const chartRef = useRef<ChartJS<"line", number[], unknown>>(null);
+  const { patient, vitals } = usePatient(patientId);
+  const { latestCTFindings } = useDicomData(patientId);
 
-  // Clean up chart instance on unmount
   useEffect(() => {
-    return () => {
-      if (chartRef.current) {
-        chartRef.current.destroy();
+    const fetchData = async () => {
+      try {
+        const data = await icpService.getCurrentReadings(patientId);
+        setReadings(data);
+
+        const predictionData = await icpService.getPredictions({
+          readings: data,
+          ct_findings: {
+            edema_level: latestCTFindings?.edema_level || 'none',
+            midline_shift: latestCTFindings?.midline_shift || 0,
+            ventricle_compression: latestCTFindings?.ventricle_compression || false,
+            hemorrhage_present: latestCTFindings?.hemorrhage_present || false,
+            hemorrhage_volume: latestCTFindings?.hemorrhage_volume
+          },
+          vital_signs: {
+            blood_pressure_systolic: vitals?.systolic || 120,
+            blood_pressure_diastolic: vitals?.diastolic || 80,
+            heart_rate: vitals?.heart_rate || 75,
+            respiratory_rate: vitals?.respiratory_rate || 16,
+            oxygen_saturation: vitals?.oxygen_saturation || 98,
+            temperature: vitals?.temperature || 37
+          }
+        });
+        setPredictions(predictionData);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch data');
       }
     };
-  }, []);
+
+    fetchData();
+    const interval = setInterval(fetchData, 5000);
+    return () => clearInterval(interval);
+  }, [patientId, latestCTFindings, vitals]);
 
   const data = {
     labels: readings.map(r => new Date(r.timestamp).toLocaleTimeString()),
-    datasets: [{
-      label: 'ICP Reading (mmHg)',
-      data: readings.map(r => r.value),
-      borderColor: 'rgb(75, 192, 192)',
-      tension: 0.1
-    }]
-  };
-
-  const options = {
-    responsive: true,
-    scales: {
-      y: {
-        beginAtZero: true,
-        title: {
-          display: true,
-          text: 'Pressure (mmHg)'
-        }
+    datasets: [
+      {
+        label: 'Current ICP (mmHg)',
+        data: readings.map(r => r.value),
+        borderColor: 'rgb(75, 192, 192)',
+        tension: 0.1
       },
-      x: {
-        title: {
-          display: true,
-          text: 'Time'
-        }
+      predictions && {
+        label: 'Predicted ICP (mmHg)',
+        data: predictions.predictions,
+        borderColor: 'rgb(255, 99, 132)',
+        borderDash: [5, 5],
+        tension: 0.1
       }
-    },
-    plugins: {
-      legend: {
-        position: 'top' as const,
-      },
-      title: {
-        display: true,
-        text: 'ICP Monitoring'
-      }
-    }
+    ].filter(Boolean)
   };
 
   return (
     <Container>
-      <Line 
-        ref={chartRef}
-        data={data} 
-        options={options}
-      />
+      <Header>
+        <h2>ICP Monitoring</h2>
+        {error && <ErrorMessage>{error}</ErrorMessage>}
+      </Header>
+
+      <GridLayout>
+        <ChartSection>
+          <Line ref={chartRef} data={data} options={chartOptions} />
+        </ChartSection>
+
+        <InfoSection>
+          {predictions && (
+            <>
+              <RiskFactors>
+                <h3>Risk Factors</h3>
+                <RiskItem $warning={predictions.riskFactors.current_icp > 20}>
+                  Current ICP: {predictions.riskFactors.current_icp} mmHg
+                </RiskItem>
+                <RiskItem $warning={predictions.riskFactors.trending_up}>
+                  Trend: {predictions.riskFactors.trending_up ? '↑ Rising' : '↓ Stable'}
+                </RiskItem>
+                <RiskItem $warning={predictions.riskFactors.compliance_decreasing}>
+                  Brain Compliance: {predictions.riskFactors.compliance_decreasing ? 'Decreasing' : 'Normal'}
+                </RiskItem>
+              </RiskFactors>
+
+              <Recommendations>
+                <h3>Recommended Actions</h3>
+                {predictions.recommendedActions.map((action, index) => (
+                  <RecommendationItem key={index} $priority={action.priority.toLowerCase()}>
+                    <strong>{action.action}</strong>
+                    <p>{action.details}</p>
+                  </RecommendationItem>
+                ))}
+              </Recommendations>
+            </>
+          )}
+        </InfoSection>
+      </GridLayout>
     </Container>
   );
 };
 
+const chartOptions = {
+  responsive: true,
+  scales: {
+    y: {
+      beginAtZero: true,
+      title: { display: true, text: 'Pressure (mmHg)' }
+    },
+    x: {
+      title: { display: true, text: 'Time' }
+    }
+  },
+  plugins: {
+    legend: { position: 'top' as const },
+    title: { display: true, text: 'ICP Monitoring' }
+  }
+};
+
+// Styled Components
 const Container = styled.div`
   padding: 20px;
   background: white;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  width: 100%;
+`;
+
+const Header = styled.div`
+  margin-bottom: 20px;
+`;
+
+const ErrorMessage = styled.div`
+  color: red;
+  margin-top: 10px;
+`;
+
+const GridLayout = styled.div`
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
+`;
+
+const ChartSection = styled.div`
   height: 400px;
+`;
+
+const InfoSection = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+`;
+
+const RiskFactors = styled.div`
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+`;
+
+const RiskItem = styled.div<{ $warning: boolean }>`
+  padding: 10px;
+  margin: 5px 0;
+  background: ${props => props.$warning ? '#fff3cd' : '#e9ecef'};
+  border-radius: 4px;
+  color: ${props => props.$warning ? '#856404' : 'inherit'};
+`;
+
+const Recommendations = styled.div`
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+`;
+
+const RecommendationItem = styled.div<{ $priority: string }>`
+  padding: 10px;
+  margin: 5px 0;
+  background: ${props => 
+    props.$priority === 'high' ? '#f8d7da' :
+    props.$priority === 'medium' ? '#fff3cd' :
+    '#d4edda'};
+  border-radius: 4px;
 `;
 
 export default ICPMonitoring; 

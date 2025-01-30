@@ -243,5 +243,29 @@ def list_data():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/dicom/volume/<series_id>', methods=['GET'])
+def get_volume(series_id):
+    try:
+        series = db.series.find_one({'series_instance_uid': series_id})
+        if not series:
+            return jsonify({'error': 'Series not found'}), 404
+            
+        # Get all instances for this series
+        instances = list(db.instances.find({'series_instance_uid': series_id}))
+        
+        # Process volume data
+        volume_data = {
+            'volume': [], # Process DICOM data into volume array
+            'dimensions': {
+                'width': instances[0]['columns'],
+                'height': instances[0]['rows'],
+                'depth': len(instances)
+            }
+        }
+        
+        return jsonify(volume_data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5003) 

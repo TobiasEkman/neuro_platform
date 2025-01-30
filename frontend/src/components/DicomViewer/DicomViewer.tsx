@@ -3,7 +3,7 @@ import { MPRViewer } from './components/MPRViewer';
 import { WindowLevelControls } from './components/WindowLevelControls';
 import { MeasurementTools } from './components/MeasurementTools';
 import { ViewerContainer, ControlsContainer, ViewerLayout } from './styles';
-import { dicomService } from '../../services/dicomService';
+import { dicomViewerService } from '../../services/dicomViewerService';
 import { DicomSeries } from '../../types/dicom';
 import { DicomDebug } from './DicomDebug';
 
@@ -12,7 +12,8 @@ export interface DicomViewerProps {
 }
 
 const DicomViewer: React.FC<DicomViewerProps> = ({ seriesId }) => {
-  const [series, setSeries] = useState<DicomSeries | null>(null);
+  const [image, setImage] = useState<Blob | null>(null);
+  const [metadata, setMetadata] = useState<DicomSeries | null>(null);
   const [layout, setLayout] = useState<'single' | 'mpr'>('single');
   const [windowLevel, setWindowLevel] = useState({ center: 127, width: 255 });
   const [currentSlice, setCurrentSlice] = useState(0);
@@ -20,18 +21,19 @@ const DicomViewer: React.FC<DicomViewerProps> = ({ seriesId }) => {
   const [loadingError, setLoadingError] = useState<string | null>(null);
 
   useEffect(() => {
-    const loadSeries = async () => {
+    const loadSeriesData = async () => {
       try {
-        setError(null);
-        const data = await dicomService.loadSeries(seriesId);
-        setSeries(data);
+        const [imageData, metaData] = await Promise.all([
+          dicomViewerService.getImage(seriesId),
+          dicomViewerService.getSeriesMetadata(seriesId)
+        ]);
+        setImage(imageData);
+        setMetadata(metaData);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load series');
-        console.error('Error loading series:', err);
+        console.error('Failed to load series data:', err);
       }
     };
-
-    loadSeries();
+    loadSeriesData();
   }, [seriesId]);
 
   if (loadingError) {
@@ -44,7 +46,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({ seriesId }) => {
   }
 
   if (error) return <div>Error: {error}</div>;
-  if (!series) return <div>Loading...</div>;
+  if (!image || !metadata) return <div>Loading...</div>;
 
   return (
     <ViewerContainer>

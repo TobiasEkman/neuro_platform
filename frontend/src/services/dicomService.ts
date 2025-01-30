@@ -11,20 +11,9 @@ interface VolumeData {
 
 export const dicomService = {
   // Load DICOM series by ID
-  loadSeries: async (seriesId: string) => {
-    try {
-      console.log('Fetching series:', seriesId);
-      const response = await fetch(`/api/dicom/series/${seriesId}`);
-      if (!response.ok) {
-        const text = await response.text();
-        console.error('Response not OK:', response.status, text);
-        throw new Error(`Failed to load series: ${text}`);
-      }
-      return response.json();
-    } catch (error) {
-      console.error('Error in loadSeries:', error);
-      throw error;
-    }
+  loadSeries: async (seriesId: string): Promise<DicomSeries> => {
+    const response = await fetch(`/api/dicom/series/${seriesId}`);
+    return response.json();
   },
 
   // Get volume data for MPR views
@@ -35,13 +24,12 @@ export const dicomService = {
   },
 
   // Import DICOM files
-  importFolder: async (folderPath: string) => {
-    const response = await fetch('/api/dicom/import', {
+  importFolder: async (folderPath: string): Promise<DicomImportResult> => {
+    const response = await fetch('/api/dicom/parse/folder', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: folderPath })
+      body: JSON.stringify({ folderPath })
     });
-    if (!response.ok) throw new Error('Failed to import DICOM files');
     return response.json();
   },
 
@@ -122,6 +110,40 @@ export const dicomService = {
       const error = await response.json();
       throw new Error(error.message || 'Connection test failed');
     }
+    return response.json();
+  },
+
+  searchDicom: async (query: string) => {
+    const response = await fetch(`/api/dicom/search?q=${encodeURIComponent(query)}`);
+    return response.json();
+  },
+
+  getStats: async () => {
+    const response = await fetch('/api/dicom/stats');
+    return response.json();
+  },
+
+  analyzeDataset: async () => {
+    const response = await fetch('/api/dicom/dataset/analyze');
+    return response.json();
+  },
+
+  getImage: async (instanceUid: string): Promise<Blob> => {
+    const response = await fetch(`/api/dicom/image/${instanceUid}`);
+    return response.blob();
+  },
+
+  uploadDicom: async (files: FileList): Promise<DicomImportResult> => {
+    const formData = new FormData();
+    Array.from(files).forEach(file => {
+        formData.append('files', file);
+    });
+    
+    const response = await fetch('/api/dicom/upload', {
+        method: 'POST',
+        body: formData
+    });
+    if (!response.ok) throw new Error('Failed to upload DICOM files');
     return response.json();
   }
 }; 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, Route } from 'react-router-dom';
 import { DemoProvider } from './context/DemoContext';
 import Dashboard from './components/Dashboard';
 import PreopPlanning from './components/PreopPlanning/PreopPlanning';
@@ -24,6 +24,7 @@ export const App: React.FC = () => {
       <BrowserRouter>
         <DemoProvider>
           <Layout />
+          <Route path="/inference" element={<LocalInference />} />
         </DemoProvider>
       </BrowserRouter>
     </ThemeProvider>

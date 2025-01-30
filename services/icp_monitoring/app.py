@@ -1,26 +1,48 @@
 from flask import Flask, request, jsonify
 from .models.icp_prediction import ICPPredictionModel
 from shared.models.registry import ModelRegistry
+from dataclasses import dataclass
+from typing import List, Optional
 
 app = Flask(__name__)
 icp_model = ICPPredictionModel()
 model_registry = ModelRegistry()
 
+@dataclass
+class CTFindings:
+    edema_level: str
+    midline_shift: float
+    ventricle_compression: bool
+    hemorrhage_present: bool
+    hemorrhage_volume: Optional[float] = None
+
+@dataclass
+class VitalSigns:
+    blood_pressure_systolic: float
+    blood_pressure_diastolic: float
+    heart_rate: float
+    respiratory_rate: float
+    oxygen_saturation: float
+    temperature: float
+
 @app.route('/api/monitoring/icp/predict', methods=['POST'])
 def predict_icp():
     try:
-        patient_data = request.json
+        data = request.json
         
-        # Get recent ICP readings
-        recent_readings = patient_data['readings']
+        # Validate required fields
+        if not all(key in data for key in ['readings', 'ct_findings', 'vital_signs']):
+            return jsonify({'error': 'Missing required fields'}), 400
+            
+        # Validate CT findings
+        ct_findings = CTFindings(**data['ct_findings'])
+        vital_signs = VitalSigns(**data['vital_signs'])
         
-        # Predict ICP trend for next 6 hours
-        predictions = icp_model.predict_trend(recent_readings)
-        
-        # Calculate risk factors
+        # Get predictions using validated data
+        predictions = icp_model.predict_trend(data['readings'])
         risk_factors = icp_model.analyze_risk_factors(
-            patient_data['ct_findings'],
-            patient_data['vital_signs'],
+            ct_findings,
+            vital_signs,
             predictions
         )
         

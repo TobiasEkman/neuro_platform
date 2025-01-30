@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import axios from 'axios';
+import { upload } from '../middlewares/upload';
 
 const router = Router();
 
@@ -87,6 +88,76 @@ router.get('/list', async (req, res) => {
             message,
             details: 'Make sure the Flask server is running on port 5003'
         });
+    }
+});
+
+// Add these routes
+router.get('/search', async (req, res) => {
+    try {
+        const response = await axios.get(
+            `http://localhost:5003/api/search${req._parsedUrl.search || ''}`
+        );
+        res.json(response.data);
+    } catch (err) {
+        const message = err instanceof Error ? err.message : 'An unknown error occurred';
+        res.status(500).json({ message });
+    }
+});
+
+router.get('/stats', async (req, res) => {
+    try {
+        const response = await axios.get('http://localhost:5003/api/dicom/stats');
+        res.json(response.data);
+    } catch (err) {
+        const message = err instanceof Error ? err.message : 'An unknown error occurred';
+        res.status(500).json({ message });
+    }
+});
+
+router.get('/dataset/analyze', async (req, res) => {
+    try {
+        const response = await axios.get('http://localhost:5003/api/dataset/analyze');
+        res.json(response.data);
+    } catch (err) {
+        const message = err instanceof Error ? err.message : 'An unknown error occurred';
+        res.status(500).json({ message });
+    }
+});
+
+// Add these missing endpoints
+router.get('/volume/:seriesId', async (req, res) => {
+    try {
+        const response = await axios.get(
+            `http://localhost:5003/api/dicom/volume/${req.params.seriesId}`
+        );
+        res.json(response.data);
+    } catch (err) {
+        const message = err instanceof Error ? err.message : 'An unknown error occurred';
+        res.status(500).json({ message });
+    }
+});
+
+router.get('/series/:seriesId/metadata', async (req, res) => {
+    try {
+        const response = await axios.get(
+            `http://localhost:5003/api/dicom/series/${req.params.seriesId}/metadata`
+        );
+        res.json(response.data);
+    } catch (err) {
+        const message = err instanceof Error ? err.message : 'An unknown error occurred';
+        res.status(500).json({ message });
+    }
+});
+
+router.post('/upload', upload.array('files'), async (req, res) => {
+    try {
+        const response = await axios.post(
+            'http://imaging_data:5003/api/dicom/upload',
+            req.files
+        );
+        res.json(response.data);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
