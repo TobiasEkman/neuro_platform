@@ -3,12 +3,14 @@ import { Link, useLocation } from 'react-router-dom';
 import styled from 'styled-components';
 import { 
   FaHome, 
+  FaUsers,
+  FaSearch,
   FaImages, 
   FaBrain, 
+  FaMicrochip,
   FaChartLine, 
   FaClipboardList,
-  FaCube,
-  FaSearch
+  FaCube
 } from 'react-icons/fa';
 
 const NavContainer = styled.nav`
@@ -55,11 +57,20 @@ const Navigation: React.FC = () => {
       <NavLink to="/" $active={location.pathname === '/'}>
         <FaHome /> Dashboard
       </NavLink>
+      <NavLink to="/patients" $active={location.pathname === '/patients'}>
+        <FaUsers /> Patient Explorer
+      </NavLink>
+      <NavLink to="/dicom-viewer" $active={location.pathname === '/dicom-viewer'}>
+        <FaSearch /> DICOM Viewer
+      </NavLink>
       <NavLink to="/dicom-manager" $active={location.pathname === '/dicom-manager'}>
         <FaImages /> DICOM Manager
       </NavLink>
       <NavLink to="/tumor-analysis" $active={location.pathname === '/tumor-analysis'}>
         <FaBrain /> Tumor Analysis
+      </NavLink>
+      <NavLink to="/inference" $active={location.pathname === '/inference'}>
+        <FaMicrochip /> Local Inference
       </NavLink>
       <NavLink to="/icp-monitoring" $active={location.pathname === '/icp-monitoring'}>
         <FaChartLine /> ICP Monitoring
@@ -69,9 +80,6 @@ const Navigation: React.FC = () => {
       </NavLink>
       <NavLink to="/simulator" $active={location.pathname === '/simulator'}>
         <FaCube /> 3D Simulator
-      </NavLink>
-      <NavLink to="/dicom-viewer" $active={location.pathname === '/dicom-viewer'}>
-        <FaSearch /> DICOM Viewer
       </NavLink>
     </NavContainer>
   );

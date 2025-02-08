@@ -4,7 +4,6 @@ import { DicomList } from './DicomList';
 import { DicomControls } from './DicomControls';
 import { DicomImportResult, DicomStudy } from '../../types/dicom';
 import { dicomService } from '../../services/dicomService';
-import './styles/DicomManager.css';
 import { usePatient } from '../../hooks/usePatient';
 import { useDicomData } from '../../hooks/useDicomData';
 import { UploadSection } from './UploadSection';
@@ -41,6 +40,15 @@ const ModalContent = styled.div`
   overflow-y: auto;
 `;
 
+const DicomManagerContainer = styled.div`
+  padding: 20px;
+  
+  h2 {
+    margin-bottom: 20px;
+    color: ${props => props.theme.colors.text.primary};
+  }
+`;
+
 export const DicomManager: React.FC<DicomManagerProps> = ({ patientId }) => {
   const [folderPath, setFolderPath] = useState('');
   const [dicomdirPath, setDicomdirPath] = useState('');
@@ -56,9 +64,10 @@ export const DicomManager: React.FC<DicomManagerProps> = ({ patientId }) => {
     const fetchStudies = async () => {
       try {
         const data = await dicomManagerService.searchStudies(`patient:${patientId}`);
-        setStudies(data);
+        setStudies(Array.isArray(data) ? data : []);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch studies');
+        setStudies([]);
       }
     };
     fetchStudies();
@@ -89,7 +98,7 @@ export const DicomManager: React.FC<DicomManagerProps> = ({ patientId }) => {
   };
 
   return (
-    <div className="dicom-manager">
+    <DicomManagerContainer>
       <h2>DICOM Studies</h2>
       <UploadSection>
         <FileUpload 
@@ -113,6 +122,6 @@ export const DicomManager: React.FC<DicomManagerProps> = ({ patientId }) => {
           </ModalContent>
         </StatsModal>
       )}
-    </div>
+    </DicomManagerContainer>
   );
 }; 

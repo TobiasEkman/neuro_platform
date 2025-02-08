@@ -1,7 +1,6 @@
 import express from 'express';
 import cors from 'cors';
 import mongoose, { ConnectOptions } from 'mongoose';
-import { authMiddleware } from './middleware/auth';
 import { errorHandler } from './middleware/errorHandler';
 import patientRoutes from './routes/patients';
 import analysisRoutes from './routes/analysis';
@@ -15,23 +14,20 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Health check route (no auth required)
-app.use('/api', healthRoutes);
-
-// Protected routes
-app.use('/api', authMiddleware);
+// All routes are public during development
+app.use('/api/health', healthRoutes);
 app.use('/api/patients', patientRoutes);
 app.use('/api/analysis', analysisRoutes);
 app.use('/api/icp', icpRoutes);
 app.use('/api/dicom', dicomRoutes);
 
-// Error handling
-app.use(errorHandler);
-
-// Move test route under /api
+// Test route
 app.get('/api/test', (req, res) => {
   res.json({ message: 'Express server is running' });
 });
+
+// Error handling
+app.use(errorHandler);
 
 // MongoDB connection
 mongoose.connect('mongodb://127.0.0.1:27017/neuro_platform', {

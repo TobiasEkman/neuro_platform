@@ -9,6 +9,9 @@ from utils.dataset_analyzer import DatasetAnalyzer
 import pydicom
 import numpy as np
 from flask_cors import CORS
+import os
+import requests
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -265,6 +268,50 @@ def get_volume(series_id):
         
         return jsonify(volume_data)
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/dicom/upload', methods=['POST'])
+def upload_dicom():
+    try:
+        if 'files' not in request.files:
+            return jsonify({'error': 'No files uploaded'}), 400
+            
+        pid = request.form.get('pid')
+        if not pid:
+            return jsonify({'error': 'No patient ID provided'}), 400
+
+        files = request.files.getlist('files')
+        upload_dir = os.path.join(app.config['UPLOAD_DIR'], pid)
+        os.makedirs(upload_dir, exist_ok=True)
+
+        # Save files and parse DICOM data
+        saved_files = []
+        for file in files:
+            filename = secure_filename(file.filename)
+            filepath = os.path.join(upload_dir, filename)
+            file.save(filepath)
+            saved_files.append(filepath)
+
+        # Parse the uploaded files
+        parser = FolderParser(db)
+        study_data = parser.parse(upload_dir)
+
+        # Update patient record in patient management service
+        response = requests.post(
+            f'{PATIENT_SERVICE_URL}/patients/pid/{pid}/dicom',
+            json=study_data
+        )
+        
+        if not response.ok:
+            raise Exception('Failed to update patient record')
+
+        return jsonify({
+            'message': 'Upload successful',
+            'studies': study_data
+        })
+
+    except Exception as e:
+        logger.error(f"Upload error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':

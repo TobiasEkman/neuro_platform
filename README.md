@@ -11,6 +11,7 @@ CORE COMPONENTS
 - Modern SPA architecture with real-time monitoring
 - Key features:
   * Patient dashboard with vital metrics
+  * Patient Explorer with advanced filtering and sorting
   * Real-time ICP monitoring with alerts
   * 3D tumor visualization using Three.js
   * Surgical approach planning interface
@@ -122,11 +123,12 @@ CORE COMPONENTS
 
 API ENDPOINTS
 
-1. Main API (port 4000)
-- /api/patients: Patient management
-- /api/analysis: Analysis routing
-- /api/icp: ICP monitoring
-- /api/dicom: DICOM management
+1. Patient Management Service (port 5004)
+- /patients: Get all patients with filtering
+- /patients/<id>: Get, update, delete single patient
+- /patients/pid/<pid>: Get, update, delete single patient by PID
+- /bulk-upload: Bulk patient data upload
+- /health: Service health check
 
 2. Tumor Analysis Service (port 5005)
 - /api/analysis/tumor: Tumor analysis
@@ -186,10 +188,10 @@ Using Docker (Recommended):
 ```bash
 # Start a specific service in development mode
 cd docker
-docker-compose -f docker-compose.dev.yml up local_inference
+docker-compose -f docker-compose.dev.yml up patient_management mongodb
 
 # Start multiple services if needed
-docker-compose -f docker-compose.dev.yml up local_inference mongodb
+docker-compose -f docker-compose.dev.yml up patient_management mongodb imaging_data
 ```
 
 Local Development:
@@ -287,6 +289,9 @@ neuro-platform/
 ├── frontend/                 # React application
 │   ├── src/
 │   │   ├── components/      # React components
+│   │   │   ├── PatientExplorer/  # Patient management UI
+│   │   │   │   ├── PatientExplorer.tsx  # Main patient list view
+│   │   │   │   └── index.tsx     # Component exports
 │   │   │   ├── shared/      # Shared UI components
 │   │   │   │   ├── PatientHeader.tsx
 │   │   │   │   └── ServiceStatus.tsx
@@ -302,6 +307,9 @@ neuro-platform/
 │   │   ├── routes/         # API routes
 │   │   └── models/         # Mongoose models
 ├── services/               # Flask microservices
+│   ├── patient_management/ # Patient management service
+│   │   ├── app.py         # Flask application
+│   │   └── requirements.txt # Python dependencies
 │   ├── tumor_analysis/    # Tumor analysis service
 │   │   ├── models/
 │   │   │   ├── tumor_segmentation.py
@@ -395,3 +403,195 @@ Environment Setup:
    * Database connections
    * Service ports
    * Security keys
+
+# Neuro Platform
+
+The Neuro Platform is a collection of microservices for managing patient data, imaging files, DICOM uploads, and AI-based medical analysis.
+
+## Services and Ports
+
+1. **Patient Management Service (@patient_management) - Port 5004**  
+   - Manages patient records in MongoDB.  
+   - Main routes:
+     - `GET /patients` – Retrieve patients (with optional filtering).  
+     - `GET /patients/<patient_id>` – Retrieve by MongoDB ObjectId.  
+     - `GET /patients/pid/<pid>` – Retrieve by Business ID (PID_XXXX).  
+     - `POST /patients` – Create a new patient.  
+     - `POST /bulk-upload` – Bulk patient upload.  
+     - `PUT /patients/<patient_id>` – Update by MongoDB ObjectId.  
+     - `DELETE /patients/<patient_id>` – Delete by MongoDB ObjectId.  
+     - `POST /patients/pid/<pid>/dicom` – Add DICOM data for an existing PID.
+
+2. **Imaging Data Service (@imaging_data) - Port 5003**  
+   - Handles DICOM file uploads and parsing.  
+   - Main routes:
+     - `POST /dicom/upload` – Upload DICOM files.  
+       1. Validates that a `pid` was included.  
+       2. Saves all uploaded files.  
+       3. Parses them into `study_data`.  
+       4. Calls `@patient_management /patients/pid/<pid>/dicom` to attach new images/studies to that patient's record.
+
+3. **Front-End**  
+   - **DicomManager (@DicomManager)**  
+     - Components like `DicomUploader.tsx` handle file selection, validate the PID (by calling `/patients/pid/<pid>`), then upload to `@imaging_data`.  
+     - If upload is successful, the imaging service updates the patient in `@patient_management`.
+   - **PatientExplorer (@PatientExplorer)**  
+     - Displays patient details, allows selection or creation of a patient, and obtains the PID for use in `@DicomManager`.
+
+## Example DICOM Upload Flow
+
+1. **User** enters a PID in the DicomUploader UI (front-end).  
+2. **DicomUploader** calls `GET /patients/pid/<pid>` to confirm the patient exists.  
+3. **DicomUploader** sends the selected DICOM files, along with `pid`, to the Imaging Data service (`POST /dicom/upload`).  
+4. The Imaging Data service parses those files into study data (using local DICOM parsing logic).  
+5. The Imaging Data service calls the Patient Management service's `POST /patients/pid/<pid>/dicom` endpoint with the parsed study data.  
+6. The Patient Management service updates the patient record in MongoDB, appending the newly uploaded images and creating corresponding study entries.  
+7. **User** sees confirmation on the front-end that the images are now tied to that PID.
+
+## Technologies
+- **MongoDB** for document storage  
+- **Flask** / **Express** for microservices  
+- **React/TypeScript** for front-end components  
+- **DICOM** parsing libraries (e.g., pydicom)  
+- **Docker** for containerization
+
+## Getting Started
+1. Ensure MongoDB is running.  
+2. Start each service (patient_management, imaging_data, etc.)  
+3. Start the front-end app.  
+4. Access the front-end to manage patients, upload DICOM files, and explore imaging data.
+
+## Contributing
+- Fork and clone the repo.  
+- Make changes in a feature branch.  
+- Submit a pull request.  
+
+## License
+MIT or your appropriate license goes here.
+
+## Data Flow Diagrams
+
+### DICOM Upload Flow
+```mermaid
+sequenceDiagram
+    actor User
+    participant FE as Frontend (DicomManager)
+    participant IS as Imaging Service
+    participant PM as Patient Management
+    participant DB as MongoDB
+
+    User->>FE: 1. Väljer DICOM filer
+    Note over FE: FormData med DICOM filer
+    FE->>IS: 2. POST /dicom/upload
+    Note over IS: Sparar filer i<br/>/upload_dir/{timestamp}/
+    IS->>IS: 3. Parsar DICOM metadata
+    Note over IS: Extraherar:<br/>- PatientID<br/>- StudyInstanceUID<br/>- SeriesInstanceUID
+    
+    alt Patient exists
+        IS->>PM: 4. POST /patients/pid/{PatientID}/dicom
+        Note over IS,PM: study_data = {<br/>  images: [{<br/>    type: "MRI",<br/>    date: "2024-03-20",<br/>    dicomPath: "/path/...",<br/>    sequences: [...]<br/>  }],<br/>  studies: [{<br/>    study_instance_uid: "1.2.3...",<br/>    series: [...]<br/>  }]<br/>}
+        PM->>DB: 5. db.patients.updateOne(
+        Note over PM,DB: { id: PatientID },<br/>{ $push: { <br/>    images: { $each: study_data.images }<br/>  }}
+        PM-->>IS: 6. 200 OK
+        IS-->>FE: 7. { message: "Upload successful", studies: [...] }
+        FE-->>User: 8. Visar studieinformation
+    else Patient not found
+        IS->>PM: 4. POST /patients
+        Note over IS,PM: {<br/>  id: PatientID,<br/>  images: study_data.images,<br/>  studies: study_data.studies<br/>}
+        PM->>DB: 5. db.patients.insertOne()
+        PM-->>IS: 6. 201 Created
+        IS-->>FE: 7. { message: "New patient created", studies: [...] }
+        FE-->>User: 8. Visar studieinformation
+    end
+```
+
+### Patient Data Upload Flow
+```mermaid
+sequenceDiagram
+    actor User
+    participant FE as Frontend (PatientExplorer)
+    participant PM as Patient Management
+    participant DB as MongoDB
+
+    User->>FE: 1. Väljer CSV/Excel fil
+    Note over FE: Validerar format:<br/>- Required fields<br/>- Data types<br/>- Date formats
+    FE->>PM: 2. POST /bulk-upload
+    Note over FE,PM: [<br/>  {<br/>    name: "John Doe",<br/>    age: 45,<br/>    diagnosis: "GBM",<br/>    studyDate: "2024-03-20"<br/>  },<br/>  ...<br/>]
+    PM->>PM: 3. Validerar varje patient
+    Note over PM: Kontrollerar:<br/>- Required fields<br/>- Age range<br/>- Valid diagnosis<br/>- Date format
+    
+    alt Valid data
+        PM->>DB: 4. db.patients.insertMany()
+        PM-->>FE: 5. { 
+        Note over PM,FE: message: "Success",<br/>patient_ids: ["PID_0001", ...]<br/>}
+        FE-->>User: 6. Visar bekräftelse + nya PIDs
+    else Invalid data
+        PM-->>FE: Error: { 
+        Note over PM,FE: errors: {<br/>  0: ["Invalid age"],<br/>  2: ["Missing diagnosis"]<br/>}<br/>}
+        FE-->>User: Visar valideringsfel per rad
+    end
+```
+
+### API Details
+
+#### Imaging Service (@imaging_data)
+```typescript
+POST /dicom/upload
+Content-Type: multipart/form-data
+
+Response 200:
+{
+  message: "Upload successful",
+  studies: [{
+    study_instance_uid: string,
+    study_date: string,
+    series: [{
+      series_instance_uid: string,
+      modality: string,
+      series_number: number
+    }]
+  }]
+}
+```
+
+#### Patient Management (@patient_management)
+```typescript
+POST /patients/pid/{pid}/dicom
+Content-Type: application/json
+Body: {
+  images: [{
+    type: "MRI" | "CT" | "fMRI" | "DTI",
+    date: string,
+    dicomPath: string,
+    sequences: [{
+      name: string,
+      parameters?: {
+        TR: number,
+        TE: number,
+        sliceThickness: number
+      }
+    }]
+  }],
+  studies: [{
+    study_instance_uid: string,
+    study_date: string,
+    series: Array<SeriesData>
+  }]
+}
+
+POST /bulk-upload
+Content-Type: application/json
+Body: Array<{
+  name: string,
+  age: number,
+  diagnosis: string,
+  studyDate: string,
+  mgmtStatus?: "Methylated" | "Unmethylated" | "Unknown"
+}>
+```
+
+Key points:
+1. DICOM data valideras både i frontend och i services
+2. Alla API-svar innehåller detaljerade felmeddelanden
+3. Bulk-upload stödjer partiell validering
+4. Automatisk PID-generering för nya patienter

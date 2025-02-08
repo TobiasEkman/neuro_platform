@@ -1,7 +1,49 @@
-import mongoose from 'mongoose';
+import mongoose, { Document, Schema } from 'mongoose';
 
-// Define sub-schemas for better organization
-const MRISequenceSchema = new mongoose.Schema({
+// Define interfaces for the raw data structures
+export interface MRISequenceData {
+  name: string;
+  parameters?: {
+    TR: number;
+    TE: number;
+    sliceThickness: number;
+  };
+}
+
+export interface ImageStudyData {
+  id: string;
+  type: 'MRI' | 'CT' | 'fMRI' | 'DTI';
+  date: Date;
+  dicomPath: string;
+  sequences: MRISequenceData[];
+}
+
+export interface ICPReadingData {
+  timestamp: Date;
+  value: number;
+  location: 'Right frontal' | 'Left frontal' | 'Right temporal' | 'Left temporal' | 'Ventricles';
+  waveform: number[];
+}
+
+// Define interfaces for Mongoose documents
+export interface IPatient extends Document {
+  id: string;
+  name: string;
+  age: number;
+  diagnosis: string;
+  studyDate: Date;
+  images: mongoose.Types.DocumentArray<ImageStudyDocument>;
+  icpReadings: mongoose.Types.DocumentArray<ICPReadingDocument>;
+}
+
+export interface MRISequenceDocument extends Document, MRISequenceData {}
+export interface ImageStudyDocument extends Document, ImageStudyData {
+  sequences: mongoose.Types.DocumentArray<MRISequenceDocument>;
+}
+export interface ICPReadingDocument extends Document, ICPReadingData {}
+
+// Schema definitions
+const MRISequenceSchema = new Schema<MRISequenceDocument>({
   name: { type: String, required: true },
   parameters: {
     TR: { type: Number, required: true },
@@ -10,7 +52,7 @@ const MRISequenceSchema = new mongoose.Schema({
   }
 });
 
-const ImageStudySchema = new mongoose.Schema({
+const ImageStudySchema = new Schema<ImageStudyDocument>({
   id: { type: String, required: true },
   type: { 
     type: String, 
@@ -22,7 +64,7 @@ const ImageStudySchema = new mongoose.Schema({
   sequences: [MRISequenceSchema]
 });
 
-const ICPReadingSchema = new mongoose.Schema({
+const ICPReadingSchema = new Schema<ICPReadingDocument>({
   timestamp: { type: Date, required: true },
   value: { 
     type: Number, 
@@ -39,18 +81,24 @@ const ICPReadingSchema = new mongoose.Schema({
     type: [Number],
     validate: {
       validator: function(v: number[]) {
-        return v.length === 10; // Ensure waveform has exactly 10 values
+        return v.length === 10;
       },
       message: 'Waveform must have exactly 10 values'
     }
   }
 });
 
-const PatientSchema = new mongoose.Schema({
+const PatientSchema = new Schema<IPatient>({
   id: { 
     type: String, 
     required: true,
-    unique: true 
+    unique: true,
+    validate: {
+      validator: function(v: string) {
+        return /^PID_\d{4}$/.test(v); // Ensures format PID_XXXX
+      },
+      message: props => `${props.value} is not a valid patient ID format (PID_XXXX)`
+    }
   },
   name: { 
     type: String, 
@@ -94,9 +142,22 @@ const PatientSchema = new mongoose.Schema({
   timestamps: true // Add createdAt and updatedAt fields
 });
 
-// Add indexes for frequently queried fields
+// Add indexes
+PatientSchema.index({ id: 1 }); // Index on business ID
 PatientSchema.index({ name: 1 });
 PatientSchema.index({ studyDate: -1 });
 PatientSchema.index({ 'images.type': 1 });
 
-export default mongoose.model('Patient', PatientSchema); 
+// Auto-increment PID function
+PatientSchema.pre('save', async function(next) {
+  if (this.isNew) {
+    const lastPatient = await mongoose.model('Patient').findOne({}, { id: 1 }).sort({ id: -1 });
+    const lastNum = lastPatient ? parseInt(lastPatient.id.split('_')[1]) : 0;
+    this.id = `PID_${String(lastNum + 1).padStart(4, '0')}`;
+  }
+  next();
+});
+
+// Create and export the model
+const Patient = mongoose.model<IPatient>('Patient', PatientSchema);
+export default Patient; 

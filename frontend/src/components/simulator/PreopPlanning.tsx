@@ -108,7 +108,7 @@ const SimulatorPreopPlanning: React.FC<PreopPlanningProps> = ({ onComplete, pati
 
   return (
     <PlanningContainer>
-      <Title>Pre-operative Planning</Title>
+      <Title>Simulation - Pre-operative Planning</Title>
       
       <Section>
         <h2>Patient Information</h2>

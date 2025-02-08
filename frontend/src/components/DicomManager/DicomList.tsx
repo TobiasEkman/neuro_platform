@@ -47,8 +47,21 @@ interface DicomListProps {
   studies: DicomStudy[];
 }
 
-export const DicomList: React.FC<DicomListProps> = ({ studies }) => {
+export const DicomList: React.FC<DicomListProps> = ({ studies = [] }) => {
   const navigate = useNavigate();
+
+  if (!studies || studies.length === 0) {
+    return (
+      <StudyList>
+        <StudyItem>
+          <StudyInfo>
+            <h3>No studies available</h3>
+            <p>Upload DICOM files to get started</p>
+          </StudyInfo>
+        </StudyItem>
+      </StudyList>
+    );
+  }
 
   return (
     <StudyList>

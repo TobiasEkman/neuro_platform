@@ -9,11 +9,16 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python packages
-COPY requirements.txt .
+COPY services/patient_management/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY . .
+COPY services/patient_management .
 
-# Run the application
-CMD ["python", "app.py"] 
+ENV FLASK_APP=app.py
+ENV FLASK_ENV=development
+ENV MONGO_URL=mongodb://mongodb:27017
+
+EXPOSE 5004
+
+CMD ["flask", "run", "--host=0.0.0.0", "--port=5004"] 
