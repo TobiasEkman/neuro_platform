@@ -1,11 +1,21 @@
 import axios from 'axios';
 
-const PATIENT_SERVICE_URL = process.env.REACT_APP_PATIENT_SERVICE_URL || 'http://localhost:5004';
+const PATIENT_SERVICE_URL = process.env.REACT_APP_PATIENT_SERVICE_URL || 'http://localhost:5004/api';
 
 export const patientService = {
   getPatients: async () => {
-    const response = await axios.get(`${PATIENT_SERVICE_URL}/patients`);
-    return response.data;
+    try {
+      const response = await axios.get(`${PATIENT_SERVICE_URL}/patients`, {
+        timeout: 5000,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching patients:', error);
+      throw error;
+    }
   },
 
   updatePatient: async (id: string, data: any) => {

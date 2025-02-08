@@ -6,6 +6,7 @@ import { ViewerContainer, ControlsContainer, ViewerLayout } from './styles';
 import { dicomViewerService } from '../../services/dicomViewerService';
 import { DicomSeries } from '../../types/dicom';
 import { DicomDebug } from './DicomDebug';
+import { WelcomeView } from './components/WelcomeView';
 
 export interface DicomViewerProps {
   seriesId: string;
@@ -29,18 +30,30 @@ const DicomViewer: React.FC<DicomViewerProps> = ({ seriesId }) => {
         ]);
         setImage(imageData);
         setMetadata(metaData);
+        setLoadingError(null);
       } catch (err) {
         console.error('Failed to load series data:', err);
+        setLoadingError('Failed to load DICOM data. Please ensure the Imaging Service is running.');
       }
     };
     loadSeriesData();
   }, [seriesId]);
+
+  if (seriesId === 'default') {
+    return <WelcomeView />;
+  }
 
   if (loadingError) {
     return (
       <div className="error-container">
         <h3>Error Loading DICOM Series</h3>
         <p>{loadingError}</p>
+        <p>Please check that:</p>
+        <ul>
+          <li>The Imaging Service is running on port 5003</li>
+          <li>MongoDB is running and accessible</li>
+          <li>The series ID "{seriesId}" exists</li>
+        </ul>
       </div>
     );
   }

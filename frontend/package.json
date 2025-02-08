@@ -48,5 +48,9 @@
       "last 1 safari version"
     ]
   },
-  "proxy": "http://localhost:4000"
+  "proxy": {
+    "/api/patients": "http://localhost:5004",
+    "/api/dicom": "http://localhost:5003",
+    "/api/analysis": "http://localhost:5005"
+  }
 }

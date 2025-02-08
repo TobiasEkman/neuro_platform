@@ -11,7 +11,7 @@ export interface MRISequenceData {
 }
 
 export interface ImageStudyData {
-  id: string;
+  imageId: string;
   type: 'MRI' | 'CT' | 'fMRI' | 'DTI';
   date: Date;
   dicomPath: string;
@@ -37,7 +37,7 @@ export interface IPatient extends Document {
 }
 
 export interface MRISequenceDocument extends Document, MRISequenceData {}
-export interface ImageStudyDocument extends Document, ImageStudyData {
+export interface ImageStudyDocument extends Document, Omit<ImageStudyData, 'sequences'> {
   sequences: mongoose.Types.DocumentArray<MRISequenceDocument>;
 }
 export interface ICPReadingDocument extends Document, ICPReadingData {}
@@ -53,7 +53,7 @@ const MRISequenceSchema = new Schema<MRISequenceDocument>({
 });
 
 const ImageStudySchema = new Schema<ImageStudyDocument>({
-  id: { type: String, required: true },
+  imageId: { type: String, required: true },
   type: { 
     type: String, 
     required: true,
@@ -95,7 +95,7 @@ const PatientSchema = new Schema<IPatient>({
     unique: true,
     validate: {
       validator: function(v: string) {
-        return /^PID_\d{4}$/.test(v); // Ensures format PID_XXXX
+        return /^PID_\d{4}$/.test(v);
       },
       message: props => `${props.value} is not a valid patient ID format (PID_XXXX)`
     }
@@ -142,8 +142,7 @@ const PatientSchema = new Schema<IPatient>({
   timestamps: true // Add createdAt and updatedAt fields
 });
 
-// Add indexes
-PatientSchema.index({ id: 1 }); // Index on business ID
+// Update indexes - remove duplicate 'id' index
 PatientSchema.index({ name: 1 });
 PatientSchema.index({ studyDate: -1 });
 PatientSchema.index({ 'images.type': 1 });
