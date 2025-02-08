@@ -1,6 +1,6 @@
 // Service for interacting with tumor analysis service (port 5005)
 class TumorService {
-  private baseUrl = 'http://localhost:5005/api/analysis';
+  private baseUrl = '/api/analysis';
 
   async analyzeTumor(imageId: string) {
     const response = await fetch(`${this.baseUrl}/tumor/${imageId}`, {

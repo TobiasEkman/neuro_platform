@@ -1,9 +1,7 @@
 // Service for interacting with imaging_data Flask service (port 5003)
 class ImagingService {
-  private baseUrl = 'http://localhost:5003/api';
-
   async parseFolder(folderPath: string) {
-    const response = await fetch(`${this.baseUrl}/dicom/parse/folder`, {
+    const response = await fetch('/api/dicom/parse/folder', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -15,7 +13,7 @@ class ImagingService {
   }
 
   async parseDicomdir(dicomdirPath: string) {
-    const response = await fetch(`${this.baseUrl}/dicom/parse/dicomdir`, {
+    const response = await fetch('/api/dicom/parse/dicomdir', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -27,13 +25,13 @@ class ImagingService {
   }
 
   async search(query: string) {
-    const response = await fetch(`${this.baseUrl}/search?q=${encodeURIComponent(query)}`);
+    const response = await fetch('/api/search?q=' + encodeURIComponent(query));
     if (!response.ok) throw new Error('Search failed');
     return response.json();
   }
 
   async analyzeDataset() {
-    const response = await fetch(`${this.baseUrl}/dataset/analyze`);
+    const response = await fetch('/api/dataset/analyze');
     if (!response.ok) throw new Error('Dataset analysis failed');
     return response.json();
   }

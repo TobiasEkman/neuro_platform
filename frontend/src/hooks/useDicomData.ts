@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { CTFindings } from '../types/medical';
-import { dicomManagerService } from '../services/dicomManagerService';
+import { dicomService } from '../services/dicomService';
 import { DicomStudy } from '../types/dicom';
 
 interface UseDicomDataReturn {
@@ -18,7 +18,7 @@ export const useDicomData = (patientId: string): UseDicomDataReturn => {
         const fetchData = async () => {
             try {
                 setLoading(true);
-                const studies = await dicomManagerService.searchStudies(`patient:${patientId}`);
+                const studies = await dicomService.searchStudies(`patient:${patientId}`);
                 
                 // Find latest CT study
                 const latestCTStudy = studies

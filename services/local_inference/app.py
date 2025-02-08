@@ -167,5 +167,4 @@ def track_usage():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == "__main__":
-    print("Starting Flask app")  # Debugging
-    app.run(host='0.0.0.0', port=5004, debug=True) 
+    app.run(host='0.0.0.0', port=5007, debug=True) 

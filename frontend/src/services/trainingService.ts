@@ -1,6 +1,6 @@
 // Service for interacting with model training service (port 5001)
 class TrainingService {
-  private baseUrl = 'http://localhost:5001/api/training';
+  private baseUrl = '/api/training';
 
   async trainTumorModel(data: {
     training_images: any[];

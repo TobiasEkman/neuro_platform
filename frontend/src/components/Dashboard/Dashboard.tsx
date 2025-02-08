@@ -1,7 +1,7 @@
 import React from 'react';
 import { useDemo } from '../../context/DemoContext';
 import '../styles/Dashboard.css';
-import ICPMonitoring from '../ICPMonitoring/ICPMonitoring';
+import { ICPMonitoring } from '../ICPMonitoring/ICPMonitoring';
 import { FaBrain, FaChartLine } from 'react-icons/fa';
 import QuickAction from '../QuickAction/QuickAction';
 

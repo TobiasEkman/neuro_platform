@@ -1,6 +1,6 @@
 // Service for interacting with simulator service (port 5007)
 class SimulatorService {
-  private baseUrl = 'http://localhost:5007/api/simulator';
+  private baseUrl = '/api/simulator';
 
   async createSession() {
     const response = await fetch(`${this.baseUrl}/session`, {

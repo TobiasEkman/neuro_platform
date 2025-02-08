@@ -72,4 +72,4 @@ def generate_recommendations(risk_factors):
     return recommendations
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5006) 
+    app.run(port=5006) 

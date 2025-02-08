@@ -7,7 +7,9 @@ import {
   LineElement,
   Title,
   Tooltip,
-  Legend
+  Legend,
+  ChartData,
+  ChartOptions
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import styled from 'styled-components';
@@ -28,25 +30,47 @@ ChartJS.register(
 );
 
 interface Props {
-  patientId: string;
+  readings?: ICPReading[];
+  patientId?: string;
 }
 
-export const ICPMonitoring: React.FC<Props> = ({ patientId }) => {
-  const [readings, setReadings] = useState<ICPReading[]>([]);
+export const ICPMonitoring: React.FC<Props> = ({ 
+  readings = [],
+  patientId 
+}) => {
+  const [localReadings, setLocalReadings] = useState<ICPReading[]>([]);
   const [predictions, setPredictions] = useState<ICPPrediction | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const chartRef = useRef<ChartJS<"line", number[], unknown>>(null);
-  const { patient, vitals } = usePatient(patientId);
-  const { latestCTFindings } = useDicomData(patientId);
+  const chartRef = useRef<any>(null);
+  const { patient, vitals } = usePatient(patientId || null);
+  const { latestCTFindings } = useDicomData(patientId || '');
 
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchReadings = async () => {
+      if (!patientId || readings.length > 0) return;
+      
       try {
         const data = await icpService.getCurrentReadings(patientId);
-        setReadings(data);
+        setLocalReadings(data);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch readings');
+      }
+    };
 
+    fetchReadings();
+    const interval = setInterval(fetchReadings, 5000);
+    return () => clearInterval(interval);
+  }, [patientId, readings]);
+
+  const currentReadings = readings.length > 0 ? readings : localReadings;
+
+  useEffect(() => {
+    const fetchPredictions = async () => {
+      if (currentReadings.length === 0) return;
+
+      try {
         const predictionData = await icpService.getPredictions({
-          readings: data,
+          readings: currentReadings,
           ct_findings: {
             edema_level: latestCTFindings?.edema_level || 'none',
             midline_shift: latestCTFindings?.midline_shift || 0,
@@ -55,8 +79,8 @@ export const ICPMonitoring: React.FC<Props> = ({ patientId }) => {
             hemorrhage_volume: latestCTFindings?.hemorrhage_volume
           },
           vital_signs: {
-            blood_pressure_systolic: vitals?.systolic || 120,
-            blood_pressure_diastolic: vitals?.diastolic || 80,
+            blood_pressure_systolic: vitals?.blood_pressure_systolic || 120,
+            blood_pressure_diastolic: vitals?.blood_pressure_diastolic || 80,
             heart_rate: vitals?.heart_rate || 75,
             respiratory_rate: vitals?.respiratory_rate || 16,
             oxygen_saturation: vitals?.oxygen_saturation || 98,
@@ -65,21 +89,29 @@ export const ICPMonitoring: React.FC<Props> = ({ patientId }) => {
         });
         setPredictions(predictionData);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch data');
+        setError(err instanceof Error ? err.message : 'Failed to fetch predictions');
       }
     };
 
-    fetchData();
-    const interval = setInterval(fetchData, 5000);
-    return () => clearInterval(interval);
-  }, [patientId, latestCTFindings, vitals]);
+    fetchPredictions();
+  }, [currentReadings, latestCTFindings, vitals]);
 
-  const data = {
-    labels: readings.map(r => new Date(r.timestamp).toLocaleTimeString()),
+  // Definiera typen för dataset
+  type DatasetType = {
+    label: string;
+    data: number[];
+    borderColor: string;
+    tension: number;
+    borderDash?: number[];
+  };
+
+  // Skapa data med korrekt typning och filtrera bort null
+  const data: ChartData<'line'> = {
+    labels: currentReadings.map(r => new Date(r.timestamp).toLocaleTimeString()),
     datasets: [
       {
         label: 'Current ICP (mmHg)',
-        data: readings.map(r => r.value),
+        data: currentReadings.map(r => r.value),
         borderColor: 'rgb(75, 192, 192)',
         tension: 0.1
       },
@@ -90,7 +122,24 @@ export const ICPMonitoring: React.FC<Props> = ({ patientId }) => {
         borderDash: [5, 5],
         tension: 0.1
       }
-    ].filter(Boolean)
+    ].filter((dataset): dataset is DatasetType => dataset !== null)
+  };
+
+  const chartOptions: ChartOptions<'line'> = {
+    responsive: true,
+    scales: {
+      y: {
+        beginAtZero: true,
+        title: { display: true, text: 'Pressure (mmHg)' }
+      },
+      x: {
+        title: { display: true, text: 'Time' }
+      }
+    },
+    plugins: {
+      legend: { position: 'top' as const },
+      title: { display: true, text: 'ICP Monitoring' }
+    }
   };
 
   return (
@@ -136,23 +185,6 @@ export const ICPMonitoring: React.FC<Props> = ({ patientId }) => {
       </GridLayout>
     </Container>
   );
-};
-
-const chartOptions = {
-  responsive: true,
-  scales: {
-    y: {
-      beginAtZero: true,
-      title: { display: true, text: 'Pressure (mmHg)' }
-    },
-    x: {
-      title: { display: true, text: 'Time' }
-    }
-  },
-  plugins: {
-    legend: { position: 'top' as const },
-    title: { display: true, text: 'ICP Monitoring' }
-  }
 };
 
 // Styled Components

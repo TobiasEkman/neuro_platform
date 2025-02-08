@@ -1,9 +1,33 @@
 import React from 'react';
+import styled from 'styled-components';
 
-export const DicomControls: React.FC = () => {
+const ControlsContainer = styled.div`
+  display: flex;
+  gap: 1rem;
+  margin: 1rem 0;
+`;
+
+export interface DicomControlsProps {
+  onRefresh?: () => void;
+  onClear?: () => void;
+}
+
+export const DicomControls: React.FC<DicomControlsProps> = ({
+  onRefresh,
+  onClear
+}) => {
   return (
-    <div className="dicom-controls">
-      {/* Control buttons/options */}
-    </div>
+    <ControlsContainer>
+      {onRefresh && (
+        <button onClick={onRefresh}>
+          Refresh Studies
+        </button>
+      )}
+      {onClear && (
+        <button onClick={onClear}>
+          Clear Selection
+        </button>
+      )}
+    </ControlsContainer>
   );
 }; 

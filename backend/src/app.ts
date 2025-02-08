@@ -10,20 +10,43 @@ import healthRoutes from './routes/health';
 
 const app = express();
 
+// Add this before other middleware
+app.use((req, res, next) => {
+  console.log('\nExpress Backend Request:', {
+    path: req.path,
+    method: req.method,
+    headers: req.headers,
+    url: req.url
+  });
+  next();
+});
+
 // Middleware
 app.use(cors());
 app.use(express.json());
 
 // All routes are public during development
-app.use('/api/health', healthRoutes);
-app.use('/api/patients', patientRoutes);
-app.use('/api/analysis', analysisRoutes);
-app.use('/api/icp', icpRoutes);
-app.use('/api/dicom', dicomRoutes);
+app.use('/patients', patientRoutes);
+app.use('/analysis', analysisRoutes);
+app.use('/icp', icpRoutes);
+app.use('/dicom', dicomRoutes);
 
 // Test route
 app.get('/api/test', (req, res) => {
-  res.json({ message: 'Express server is running' });
+  res.json({ 
+    message: 'Express backend test route',
+    path: req.path,
+    method: req.method
+  });
+});
+
+// Add this before the routes
+app.get('/api/debug', (req, res) => {
+  res.json({
+    message: 'Debug endpoint reached',
+    path: req.path,
+    headers: req.headers
+  });
 });
 
 // Error handling

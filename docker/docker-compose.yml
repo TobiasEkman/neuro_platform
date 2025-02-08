@@ -83,6 +83,23 @@ services:
     volumes:
       - mongodb_data:/data/db
 
+  patient_management:
+    build:
+      context: ../services/patient_management
+      dockerfile: ../docker/flask.Dockerfile
+    ports:
+      - "5008:5008"
+    environment:
+      - FLASK_APP=app.py
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+      - PORT=5008
+      - MONGO_URL=mongodb://mongodb:27017
+    depends_on:
+      - mongodb
+    volumes:
+      - ../services/patient_management:/app
+
 volumes:
   mongodb_data:
   dicom_data:

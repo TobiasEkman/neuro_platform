@@ -1,45 +1,48 @@
 import { useState, useEffect } from 'react';
+import { patientService } from '../services/patientService';
 import { Patient, VitalSigns } from '../types/medical';
 
-interface UsePatientReturn {
-    patient: Patient | null;
-    vitals: VitalSigns | null;
-    loading: boolean;
-    error: string | null;
-}
-
-export const usePatient = (patientId: string): UsePatientReturn => {
+export const usePatient = (patientId: string | null) => {
     const [patient, setPatient] = useState<Patient | null>(null);
     const [vitals, setVitals] = useState<VitalSigns | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        const fetchPatientData = async () => {
+        const fetchPatient = async () => {
+            if (!patientId) {
+                setPatient(null);
+                setVitals(null);
+                setLoading(false);
+                return;
+            }
+
             try {
                 setLoading(true);
-                // Fetch patient data
-                const patientResponse = await fetch(`/api/patients/${patientId}`);
-                if (!patientResponse.ok) throw new Error('Failed to fetch patient');
-                const patientData = await patientResponse.json();
-                setPatient(patientData);
+                setError(null);
 
-                // Fetch latest vitals
-                const vitalsResponse = await fetch(`/api/patients/${patientId}/vitals/latest`);
-                if (!vitalsResponse.ok) throw new Error('Failed to fetch vitals');
-                const vitalsData = await vitalsResponse.json();
+                // Hämta patient och vitals parallellt
+                const [patientData, vitalsData] = await Promise.all([
+                    patientService.getPatientById(patientId),
+                    patientService.getPatientVitals(patientId)
+                ]);
+
+                if (!patientData) {
+                    throw new Error(`Patient med ID '${patientId}' hittades inte.`);
+                }
+
+                setPatient(patientData);
                 setVitals(vitalsData);
             } catch (err) {
-                setError(err instanceof Error ? err.message : 'An error occurred');
+                const errorMessage = err instanceof Error ? err.message : 'Ett fel uppstod vid hämtning av patientdata';
+                setError(errorMessage);
+                console.error('Error fetching patient:', err);
             } finally {
                 setLoading(false);
             }
         };
 
-        fetchPatientData();
-        // Poll for new vitals every 30 seconds
-        const interval = setInterval(fetchPatientData, 30000);
-        return () => clearInterval(interval);
+        fetchPatient();
     }, [patientId]);
 
     return { patient, vitals, loading, error };

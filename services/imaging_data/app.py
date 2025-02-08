@@ -12,9 +12,22 @@ from flask_cors import CORS
 import os
 import requests
 from werkzeug.utils import secure_filename
+import logging
+
+# Hårdkodad URL till patient service (port 5008)
+PATIENT_SERVICE_URL = 'http://localhost:5008/api'
+
+# Konfigurera logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+# Lägg till standard UPLOAD_DIR (använd gärna volymen /data/dicom i docker-compose)
+app.config['UPLOAD_DIR'] = os.environ.get('UPLOAD_DIR', '/data/dicom')
+CORS(app, resources={
+    r"/api/*": {"origins": "*"},
+    r"/search": {"origins": "*"}
+})  # Enable CORS for all routes
 
 # Initialize MongoDB connection with error handling
 try:
@@ -30,10 +43,27 @@ except ServerSelectionTimeoutError as e:
 
 @app.before_request
 def check_db_connection():
-    if db is None:
+    if db is None or not client:
         return jsonify({
             'error': 'Database connection not available',
             'message': 'Please ensure MongoDB is running'
+        }), 503
+
+@app.before_request
+def log_request_info():
+    logger.debug('Headers: %s', request.headers)
+    logger.debug('Body: %s', request.get_data())
+    logger.debug('URL: %s', request.url)
+    logger.debug('Path: %s', request.path)
+    logger.debug('Method: %s', request.method)
+
+@app.before_request
+def check_db():
+    if db is None:
+        logger.error("No database connection!")
+        return jsonify({
+            'error': 'Database Error',
+            'message': 'No database connection available'
         }), 503
 
 # Initialize indexes on startup
@@ -73,63 +103,37 @@ def parse_dicomdir():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/search', methods=['GET'])
-def search():
-    query = request.args.get('q', '').strip()
-    if not query:
-        return jsonify([])
-
-    # Search in patients collection
-    patient_results = fuzzy_search(
-        query,
-        list(db.patients.find()),
-        ['patient_name', 'patient_id']
-    )
-
-    # Search in studies collection
-    study_results = fuzzy_search(
-        query,
-        list(db.studies.find()),
-        ['study_description', 'study_date']
-    )
-
-    # Search in series collection
-    series_results = fuzzy_search(
-        query,
-        list(db.series.find()),
-        ['series_description', 'modality']
-    )
-
-    # Combine and format results
-    results = []
-    
-    for pr in patient_results:
-        results.append({
-            'type': 'Patient',
-            'id': str(pr['document']['_id']),
-            'text': f"{pr['document']['patient_name']} ({pr['document']['patient_id']})",
-            'score': pr['score']
-        })
-
-    for sr in study_results:
-        results.append({
-            'type': 'Study',
-            'id': str(sr['document']['_id']),
-            'text': f"{sr['document']['study_description']} ({sr['document']['study_date']})",
-            'score': sr['score']
-        })
-
-    for sr in series_results:
-        results.append({
-            'type': 'Series',
-            'id': str(sr['document']['_id']),
-            'text': f"{sr['document']['modality']}: {sr['document']['series_description']}",
-            'score': sr['score']
-        })
-
-    # Sort by score and return top 10
-    results.sort(key=lambda x: x['score'], reverse=True)
-    return jsonify(results[:10])
+@app.route('/search', methods=['GET'])
+@app.route('/api/dicom/search', methods=['GET'])
+def search_studies():
+    try:
+        query = request.args.get('q', '')
+        logger.info(f'Searching with query: {query}')
+        
+        # Om ingen query, returnera alla studier
+        if not query:
+            logger.debug('No query provided, returning all studies')
+            studies = list(db.studies.find({}))
+            logger.info(f'Found {len(studies)} studies')
+            return jsonify(studies)
+            
+        # Parse query format "patient:default" etc
+        query_parts = dict(part.split(':') for part in query.split() if ':' in part)
+        logger.debug(f'Parsed query parts: {query_parts}')
+        
+        # Build MongoDB query
+        mongo_query = {}
+        if 'patient' in query_parts and query_parts['patient'] != 'default':
+            mongo_query['patient_id'] = query_parts['patient']
+        logger.debug(f'MongoDB query: {mongo_query}')
+        
+        # Execute search
+        studies = list(db.studies.find(mongo_query))
+        logger.info(f'Found {len(studies)} matching studies')
+        return jsonify(studies)
+    except Exception as e:
+        logger.error(f"Search error: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/dataset/analyze', methods=['GET'])
 def analyze_dataset():
@@ -270,7 +274,7 @@ def get_volume(series_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/dicom/upload', methods=['POST'])
+@app.route('/api/dicom/upload', methods=['POST'])
 def upload_dicom():
     try:
         if 'files' not in request.files:
@@ -314,5 +318,26 @@ def upload_dicom():
         logger.error(f"Upload error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@app.errorhandler(404)
+def not_found_error(error):
+    logger.error(f"404 Error: {request.url}")
+    return jsonify({
+        'error': 'Not Found',
+        'message': f'The requested URL {request.url} was not found on the server.',
+        'path': request.path
+    }), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    logger.error(f"500 Error: {error}", exc_info=True)
+    return jsonify({
+        'error': 'Internal Server Error',
+        'message': str(error)
+    }), 500
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5003) 
+    logger.info("Starting Imaging Service...")
+    logger.info("Available routes:")
+    for rule in app.url_map.iter_rules():
+        logger.info(f"{rule.endpoint}: {rule.rule}")
+    app.run(host='0.0.0.0', port=5003, debug=True) 

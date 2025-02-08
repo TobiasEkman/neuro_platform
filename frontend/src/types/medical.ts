@@ -47,6 +47,15 @@ export interface VitalSigns {
   temperature: number;
 }
 
+export interface VitalSignsShort {
+  systolic: number;
+  diastolic: number;
+  heart_rate: number;
+  respiratory_rate: number;
+  oxygen_saturation: number;
+  temperature: number;
+}
+
 export interface ICPPrediction {
   predictions: number[];
   riskFactors: {
@@ -69,6 +78,28 @@ export interface TumorAnalysis {
   predictedResectionRate: number;
 }
 
+export interface DicomSeries {
+  series_instance_uid: string;
+  series_number?: number;
+  series_description?: string;
+  modality?: string;
+  images?: DicomImage[];
+}
+
+export interface DicomImage {
+  sop_instance_uid: string;
+  instance_number?: number;
+  image_position?: number[];
+  image_orientation?: number[];
+  pixel_spacing?: number[];
+  rows?: number;
+  columns?: number;
+  window_center?: number;
+  window_width?: number;
+  rescale_slope?: number;
+  rescale_intercept?: number;
+}
+
 export interface DicomStudy {
   id: string;
   type: 'MRI' | 'CT' | 'fMRI' | 'DTI';
@@ -77,4 +108,30 @@ export interface DicomStudy {
   patient_id: string;
   study_description?: string;
   series?: DicomSeries[];
+}
+
+export interface DicomImportResult {
+  message: string;
+  studies?: DicomStudy[];
+  error?: string;
+}
+
+// Konverteringsfunktion om det behövs
+export const convertVitalSigns = (vitals: VitalSigns): VitalSignsShort => ({
+  systolic: vitals.blood_pressure_systolic,
+  diastolic: vitals.blood_pressure_diastolic,
+  heart_rate: vitals.heart_rate,
+  respiratory_rate: vitals.respiratory_rate,
+  oxygen_saturation: vitals.oxygen_saturation,
+  temperature: vitals.temperature
+});
+
+export type Dimensions = [number, number, number];
+
+export interface VolumeData {
+  volume: number[];
+  dimensions: Dimensions;
+  spacing?: [number, number, number];
+  windowCenter?: number;
+  windowWidth?: number;
 } 

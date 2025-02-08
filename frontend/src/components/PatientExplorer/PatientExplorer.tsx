@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { patientService } from '../../services/patientService';
 import { FaSort, FaSortUp, FaSortDown, FaSearch, FaUpload } from 'react-icons/fa';
+import { DicomManager } from '../DicomManager/DicomManager';
 
 const Container = styled.div`
   padding: 2rem;
@@ -33,9 +34,12 @@ const TableHeader = styled.thead`
   background: ${props => props.theme.colors.background.secondary};
 `;
 
-const TableRow = styled.tr`
-  &:not(:last-child) td {
-    border-bottom: 1px solid ${props => props.theme.colors.border};
+const TableRow = styled.tr<{ selected?: boolean }>`
+  cursor: pointer;
+  background-color: ${props => props.selected ? props.theme.colors.background.highlight : 'inherit'};
+  
+  &:hover {
+    background-color: ${props => props.theme.colors.background.hover};
   }
 `;
 
@@ -174,6 +178,7 @@ interface PatientData {
 
 export const PatientExplorer: React.FC = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
+  const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editData, setEditData] = useState<Patient | null>(null);
   const [loading, setLoading] = useState(true);
@@ -194,23 +199,24 @@ export const PatientExplorer: React.FC = () => {
   
   const ITEMS_PER_PAGE = 10;
 
-  useEffect(() => {
-    loadPatients();
-  }, []);
-
-  const loadPatients = async () => {
+  const refreshPatients = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
       const data = await patientService.getPatients();
       setPatients(data);
-    } catch (error) {
-      console.error('Error loading patients:', error);
-      setError(error instanceof Error ? error.message : 'Failed to load patients');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch patients';
+      console.error('Failed to refresh patients:', err);
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    refreshPatients();
+  }, [refreshPatients]);
 
   const handleEdit = (patient: Patient) => {
     setEditingId(patient._id);
@@ -224,7 +230,7 @@ export const PatientExplorer: React.FC = () => {
       await patientService.updatePatient(editData._id, editData);
       setEditingId(null);
       setEditData(null);
-      loadPatients();
+      refreshPatients();
       showToast('Patient updated successfully', 'success');
     } catch (error) {
       console.error('Error saving patient:', error);
@@ -235,7 +241,7 @@ export const PatientExplorer: React.FC = () => {
   const handleDelete = async (id: string) => {
     try {
       await patientService.deletePatient(id);
-      loadPatients();
+      refreshPatients();
       showToast('Patient deleted successfully', 'success');
     } catch (error) {
       console.error('Error deleting patient:', error);
@@ -288,7 +294,7 @@ export const PatientExplorer: React.FC = () => {
       await patientService.updatePatient(uploadData.pid!, uploadData);
       setShowUploadModal(false);
       // Refresh patient list
-      loadPatients();
+      refreshPatients();
     } catch (err) {
       console.error('Upload error:', err);
     }
@@ -314,7 +320,7 @@ export const PatientExplorer: React.FC = () => {
 
         await patientService.bulkUpdate(patients);
         setShowUploadModal(false);
-        loadPatients();
+        refreshPatients();
       };
       reader.readAsText(file);
     } catch (err) {
@@ -322,8 +328,26 @@ export const PatientExplorer: React.FC = () => {
     }
   };
 
-  if (loading) return <div>Loading patients...</div>;
-  if (error) return <div>Error: {error}</div>;
+  const handleSelectPatient = (patient: Patient) => {
+    setSelectedPatient(patient);
+  };
+
+  if (loading) {
+    return (
+      <Container>
+        <div>Loading patients...</div>
+      </Container>
+    );
+  }
+
+  if (error) {
+    return (
+      <Container>
+        <div>Error: {error}</div>
+        <Button onClick={refreshPatients}>Retry</Button>
+      </Container>
+    );
+  }
 
   return (
     <Container>
@@ -373,7 +397,11 @@ export const PatientExplorer: React.FC = () => {
         </TableHeader>
         <tbody>
           {paginatedPatients.map(patient => (
-            <TableRow key={patient._id}>
+            <TableRow 
+              key={patient._id}
+              onClick={() => handleSelectPatient(patient)}
+              selected={selectedPatient?._id === patient._id}
+            >
               <Td>{editingId === patient._id ? (
                 <EditableCell
                   value={editData?.name || ''}
@@ -482,6 +510,11 @@ export const PatientExplorer: React.FC = () => {
           <Button onClick={() => setShowUploadModal(false)}>Close</Button>
         </UploadModal>
       )}
+
+      <DicomManager 
+        patientId={selectedPatient?.id}
+        onUploadComplete={refreshPatients}
+      />
     </Container>
   );
 }; 

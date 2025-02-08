@@ -1,35 +1,106 @@
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
+import { Patient, VitalSigns } from '../types/medical';
 
-const PATIENT_SERVICE_URL = process.env.REACT_APP_PATIENT_SERVICE_URL || 'http://localhost:5004/api';
+// Configure axios defaults
+axios.defaults.baseURL = '/api';
+axios.defaults.headers.common['Content-Type'] = 'application/json';
 
 export const patientService = {
   getPatients: async () => {
     try {
-      const response = await axios.get(`${PATIENT_SERVICE_URL}/patients`, {
-        timeout: 5000,
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
+      console.log('Fetching patients...'); // Debug log
+      const response = await axios.get('/patients');
+      console.log('Patient response:', response.data); // Debug log
       return response.data;
     } catch (error) {
-      console.error('Error fetching patients:', error);
+      if (error instanceof AxiosError) {
+        console.error('Error fetching patients:', error.response || error);
+      } else {
+        console.error('Error fetching patients:', error);
+      }
       throw error;
     }
   },
 
-  updatePatient: async (id: string, data: any) => {
-    const response = await axios.put(`${PATIENT_SERVICE_URL}/patients/${id}`, data);
-    return response.data;
+  getPatientById: async (id: string) => {
+    try {
+      const response = await axios.get(`/api/patients/${id}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching patient:', error);
+      throw error;
+    }
   },
 
-  bulkUpdate: async (updates: any[]) => {
-    const response = await axios.post(`${PATIENT_SERVICE_URL}/bulk-upload`, updates);
-    return response.data;
+  getPatientByPid: async (pid: string) => {
+    try {
+      const response = await axios.get(`/api/patients/pid/${pid}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching patient by PID:', error);
+      throw error;
+    }
+  },
+
+  searchByPid: async (pid: string) => {
+    try {
+      const response = await axios.get(`/api/patients?pid=${pid}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error searching patient by PID:', error);
+      throw error;
+    }
+  },
+
+  updatePatient: async (id: string, data: Partial<Patient>) => {
+    try {
+      const response = await axios.put(`/api/patients/${id}`, data);
+      return response.data;
+    } catch (error) {
+      console.error('Error updating patient:', error);
+      throw error;
+    }
+  },
+
+  updatePatientByPid: async (pid: string, data: Partial<Patient>) => {
+    try {
+      const response = await axios.put(`/api/patients/pid/${pid}`, data);
+      return response.data;
+    } catch (error) {
+      console.error('Error updating patient:', error);
+      throw error;
+    }
+  },
+
+  bulkUpdate: async (updates: Partial<Patient>[]) => {
+    try {
+      const response = await axios.post('/api/patients/bulk', updates);
+      return response.data;
+    } catch (error) {
+      console.error('Error bulk updating patients:', error);
+      throw error;
+    }
   },
 
   deletePatient: async (id: string) => {
-    const response = await axios.delete(`${PATIENT_SERVICE_URL}/patients/${id}`);
-    return response.data;
+    try {
+      const response = await axios.delete(`/api/patients/${id}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error deleting patient:', error);
+      throw error;
+    }
+  },
+
+  getPatientVitals: async (id: string): Promise<VitalSigns> => {
+    // Temporär dummy-data tills backend är klar
+    return {
+        blood_pressure_systolic: 120,
+        blood_pressure_diastolic: 80,
+        heart_rate: 75,
+        respiratory_rate: 16,
+        oxygen_saturation: 98,
+        temperature: 37
+    };
   }
 }; 

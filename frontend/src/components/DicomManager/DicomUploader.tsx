@@ -1,4 +1,8 @@
 import React, { useState } from 'react';
+import { FileUpload } from './FileUpload';
+import { DicomImportResult } from '../../types/dicom';
+import { patientService } from '../../services/patientService';
+import { dicomService } from '../../services/dicomService';
 
 interface DicomUploaderProps {
   onUploadComplete: (result: DicomImportResult) => void;
@@ -9,27 +13,14 @@ export const DicomUploader: React.FC<DicomUploaderProps> = ({ onUploadComplete }
   
   const handleUpload = async (files: FileList) => {
     try {
-      // First, validate PID exists
-      const response = await fetch(`${PATIENT_SERVICE_URL}/patients/pid/${pid}`);
-      if (!response.ok) {
+      // First, validate PID exists using patientService
+      const patient = await patientService.getPatientByPid(pid);
+      if (!patient) {
         throw new Error('Please enter a valid Patient ID (PID) first');
       }
 
-      // Then upload to imaging service
-      const formData = new FormData();
-      Array.from(files).forEach(file => formData.append('files', file));
-      formData.append('pid', pid); // Add PID to form data
-
-      const uploadResponse = await fetch(`${IMAGING_SERVICE_URL}/dicom/upload`, {
-        method: 'POST',
-        body: formData
-      });
-
-      if (!uploadResponse.ok) {
-        throw new Error('Failed to upload DICOM files');
-      }
-
-      const result = await uploadResponse.json();
+      // Then upload using dicomService.uploadFiles
+      const result = await dicomService.uploadFiles(files);
       onUploadComplete(result);
     } catch (error) {
       console.error('Upload error:', error);
@@ -45,7 +36,7 @@ export const DicomUploader: React.FC<DicomUploaderProps> = ({ onUploadComplete }
         value={pid}
         onChange={(e) => setPid(e.target.value)}
       />
-      <FileUpload onFilesSelected={handleUpload} />
+      <FileUpload onUpload={handleUpload} />
     </div>
   );
 }; 

@@ -1,13 +1,14 @@
 import styled from 'styled-components';
 
 export const StatsButton = styled.button`
-  padding: 10px 20px;
-  background: #6c757d;
-  color: white;
-  border: none;
+  padding: 8px 16px;
+  margin: 0 8px;
+  border: 1px solid #ccc;
   border-radius: 4px;
+  background: white;
   cursor: pointer;
+  
   &:hover {
-    background: #5a6268;
+    background: #f5f5f5;
   }
 `; 

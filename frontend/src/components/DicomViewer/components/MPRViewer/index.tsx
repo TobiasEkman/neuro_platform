@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { dicomService } from '../../services/dicomService';
+import { dicomService } from '../../../../services/dicomService';
+import { Dimensions, VolumeData } from '../../../../types/medical';
 
 export interface MPRViewerProps {
   seriesId: string;
@@ -8,12 +9,6 @@ export interface MPRViewerProps {
   windowWidth: number;
   currentSlice: number;
   onSliceChange: (slice: number) => void;
-}
-
-interface Dimensions {
-  width: number;
-  height: number;
-  depth: number;
 }
 
 export const MPRViewer: React.FC<MPRViewerProps> = ({
@@ -26,15 +21,17 @@ export const MPRViewer: React.FC<MPRViewerProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [volumeData, setVolumeData] = useState<Float32Array | null>(null);
-  const [dimensions, setDimensions] = useState<Dimensions>({ width: 0, height: 0, depth: 0 });
+  const [dimensions, setDimensions] = useState<Dimensions>([0, 0, 0]);
+  const [error, setError] = useState<string | null>(null);
 
   const loadVolumeData = useCallback(async () => {
     try {
       const data = await dicomService.getVolumeData(seriesId);
       setVolumeData(new Float32Array(data.volume));
-      setDimensions(data.dimensions);
+      setDimensions(data.dimensions);  // Nu matchar typerna
     } catch (error) {
       console.error('Error loading volume data:', error);
+      setError(error instanceof Error ? error.message : 'Failed to load volume data');
     }
   }, [seriesId]);
 
@@ -44,8 +41,8 @@ export const MPRViewer: React.FC<MPRViewerProps> = ({
 
   const extractAxialSlice = useCallback((sliceData: Uint8ClampedArray, slice: number) => {
     if (!volumeData) return;
-    const offset = slice * dimensions.width * dimensions.height;
-    for (let i = 0; i < dimensions.width * dimensions.height; i++) {
+    const offset = slice * dimensions[0] * dimensions[1];
+    for (let i = 0; i < dimensions[0] * dimensions[1]; i++) {
       const value = volumeData[offset + i];
       const index = i * 4;
       sliceData[index] = value;
@@ -57,10 +54,10 @@ export const MPRViewer: React.FC<MPRViewerProps> = ({
 
   const extractSagittalSlice = useCallback((sliceData: Uint8ClampedArray, slice: number) => {
     if (!volumeData) return;
-    for (let z = 0; z < dimensions.depth; z++) {
-      for (let y = 0; y < dimensions.height; y++) {
-        const value = volumeData[z * dimensions.width * dimensions.height + y * dimensions.width + slice];
-        const index = (z * dimensions.height + y) * 4;
+    for (let z = 0; z < dimensions[2]; z++) {
+      for (let y = 0; y < dimensions[1]; y++) {
+        const value = volumeData[z * dimensions[0] * dimensions[1] + y * dimensions[0] + slice];
+        const index = (z * dimensions[1] + y) * 4;
         sliceData[index] = value;
         sliceData[index + 1] = value;
         sliceData[index + 2] = value;
@@ -71,10 +68,10 @@ export const MPRViewer: React.FC<MPRViewerProps> = ({
 
   const extractCoronalSlice = useCallback((sliceData: Uint8ClampedArray, slice: number) => {
     if (!volumeData) return;
-    for (let z = 0; z < dimensions.depth; z++) {
-      for (let x = 0; x < dimensions.width; x++) {
-        const value = volumeData[z * dimensions.width * dimensions.height + slice * dimensions.width + x];
-        const index = (z * dimensions.width + x) * 4;
+    for (let z = 0; z < dimensions[2]; z++) {
+      for (let x = 0; x < dimensions[0]; x++) {
+        const value = volumeData[z * dimensions[0] * dimensions[1] + slice * dimensions[0] + x];
+        const index = (z * dimensions[0] + x) * 4;
         sliceData[index] = value;
         sliceData[index + 1] = value;
         sliceData[index + 2] = value;
@@ -88,8 +85,8 @@ export const MPRViewer: React.FC<MPRViewerProps> = ({
     const ctx = canvasRef.current.getContext('2d');
     if (!ctx) return;
 
-    const imageData = ctx.createImageData(dimensions.width, dimensions.height);
-    const sliceData = new Uint8ClampedArray(dimensions.width * dimensions.height * 4);
+    const imageData = ctx.createImageData(dimensions[0], dimensions[1]);
+    const sliceData = new Uint8ClampedArray(dimensions[0] * dimensions[1] * 4);
 
     switch (orientation) {
       case 'axial':
@@ -114,11 +111,11 @@ export const MPRViewer: React.FC<MPRViewerProps> = ({
   const getMaxSlice = useCallback((): number => {
     switch (orientation) {
       case 'axial':
-        return dimensions.depth - 1;
+        return dimensions[2] - 1;
       case 'sagittal':
-        return dimensions.width - 1;
+        return dimensions[0] - 1;
       case 'coronal':
-        return dimensions.height - 1;
+        return dimensions[1] - 1;
       default:
         return 0;
     }
@@ -128,8 +125,8 @@ export const MPRViewer: React.FC<MPRViewerProps> = ({
     <div className="mpr-viewer">
       <canvas 
         ref={canvasRef} 
-        width={dimensions.width} 
-        height={dimensions.height}
+        width={dimensions[0]} 
+        height={dimensions[1]}
       />
       <div className="slice-controls">
         <input

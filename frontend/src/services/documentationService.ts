@@ -1,9 +1,7 @@
 // Service for interacting with medical_documentation Flask service (port 5002)
 class DocumentationService {
-  private baseUrl = 'http://localhost:5002/api';
-
   async generateJournal(patientData: any) {
-    const eventSource = new EventSource(`${this.baseUrl}/journal/generate`);
+    const eventSource = new EventSource('/api/journal/generate');
     
     return new Promise((resolve, reject) => {
       let journalText = '';
@@ -34,7 +32,7 @@ class DocumentationService {
     const formData = new FormData();
     formData.append('audio', audioBlob);
 
-    const response = await fetch(`${this.baseUrl}/transcribe`, {
+    const response = await fetch('/api/transcribe', {
       method: 'POST',
       body: formData,
     });
@@ -44,7 +42,7 @@ class DocumentationService {
   }
 
   async getICDCodes(text: string) {
-    const response = await fetch(`${this.baseUrl}/coding/icd`, {
+    const response = await fetch('/api/coding/icd', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),

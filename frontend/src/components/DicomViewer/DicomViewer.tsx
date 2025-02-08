@@ -3,7 +3,7 @@ import { MPRViewer } from './components/MPRViewer';
 import { WindowLevelControls } from './components/WindowLevelControls';
 import { MeasurementTools } from './components/MeasurementTools';
 import { ViewerContainer, ControlsContainer, ViewerLayout } from './styles';
-import { dicomViewerService } from '../../services/dicomViewerService';
+import { dicomService } from '../../services/dicomService';
 import { DicomSeries } from '../../types/dicom';
 import { DicomDebug } from './DicomDebug';
 import { WelcomeView } from './components/WelcomeView';
@@ -25,8 +25,8 @@ const DicomViewer: React.FC<DicomViewerProps> = ({ seriesId }) => {
     const loadSeriesData = async () => {
       try {
         const [imageData, metaData] = await Promise.all([
-          dicomViewerService.getImage(seriesId),
-          dicomViewerService.getSeriesMetadata(seriesId)
+          dicomService.getImage(seriesId),
+          dicomService.getSeriesMetadata(seriesId)
         ]);
         setImage(imageData);
         setMetadata(metaData);

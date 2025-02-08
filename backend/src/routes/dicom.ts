@@ -101,7 +101,7 @@ router.get('/list', async (req, res) => {
 router.get('/search', async (req: Request<{}, any, any, ParsedQs>, res: Response) => {
     try {
         const searchQuery = req.query.q ? `?q=${req.query.q}` : '';
-        const response = await axios.get(`${IMAGING_SERVICE_URL}/api/search${searchQuery}`);
+        const response = await axios.get(`${IMAGING_SERVICE_URL}/api/dicom/search${searchQuery}`);
         res.json(response.data);
     } catch (err) {
         handleServiceError(err, res);

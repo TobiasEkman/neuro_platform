@@ -15,20 +15,21 @@ const ThreeJSViewer: React.FC<ThreeJSViewerProps> = ({ dicomPath, approach, high
   const rendererRef = useRef<THREE.WebGLRenderer>();
 
   useEffect(() => {
-    if (!mountRef.current) return;
+    const mount = mountRef.current;
+    if (!mount) return;
 
     // Setup scene
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(
       75,
-      mountRef.current.clientWidth / mountRef.current.clientHeight,
+      mount.clientWidth / mount.clientHeight,
       0.1,
       1000
     );
     const renderer = new THREE.WebGLRenderer();
 
-    renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
-    mountRef.current.appendChild(renderer.domElement);
+    renderer.setSize(mount.clientWidth, mount.clientHeight);
+    mount.appendChild(renderer.domElement);
 
     // Add controls
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -52,7 +53,7 @@ const ThreeJSViewer: React.FC<ThreeJSViewerProps> = ({ dicomPath, approach, high
 
     // Cleanup
     return () => {
-      mountRef.current?.removeChild(renderer.domElement);
+      mount?.removeChild(renderer.domElement);
       renderer.dispose();
     };
   }, []);

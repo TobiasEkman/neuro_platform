@@ -19,6 +19,6 @@ ENV FLASK_APP=app.py
 ENV FLASK_ENV=development
 ENV MONGO_URL=mongodb://mongodb:27017
 
-EXPOSE 5004
+EXPOSE 5008
 
-CMD ["flask", "run", "--host=0.0.0.0", "--port=5004"] 
+CMD ["flask", "run", "--host=0.0.0.0", "--port=5008"] 

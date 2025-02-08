@@ -1,11 +1,13 @@
 import os
 import pydicom
 from parsers.base_parser import BaseParser
+from parsers.dicomdir_parser import DicomdirParser
 
 class FolderParser(BaseParser):
     def __init__(self, db):
         super().__init__(db)
         self.progress_callback = None
+        self.dicomdir_parser = DicomdirParser(db)
 
     def set_progress_callback(self, callback):
         """Set callback for progress updates"""
@@ -14,31 +16,35 @@ class FolderParser(BaseParser):
     def parse(self, folder_path):
         results = []
         
-        # Count total files first
-        total_files = sum(1 for root, _, files in os.walk(folder_path) 
-                         for f in files if f.lower().endswith('.dcm'))
-        processed = 0
-        
+        # First, look for DICOMDIR file
+        dicomdir_path = os.path.join(folder_path, 'DICOMDIR')
+        if os.path.exists(dicomdir_path):
+            print(f"Found DICOMDIR at {dicomdir_path}")
+            return self.dicomdir_parser.parse(dicomdir_path)
+
+        # If no DICOMDIR, scan all files recursively
         for root, _, files in os.walk(folder_path):
             for file in files:
-                if file.lower().endswith('.dcm'):
-                    file_path = os.path.join(root, file)
-                    try:
-                        dataset = pydicom.dcmread(file_path)
+                file_path = os.path.join(root, file)
+                try:
+                    # Try to read as DICOM regardless of extension
+                    dataset = pydicom.dcmread(file_path, force=True)
+                    
+                    # Verify it's actually a DICOM file by checking for mandatory elements
+                    if hasattr(dataset, 'SOPClassUID'):
                         result = self._process_dataset(dataset, file_path)
                         if result:
                             results.append(result)
-                    except Exception as e:
-                        print(f"Error reading file {file_path}: {str(e)}")
-                    
-                    processed += 1
-                    if self.progress_callback:
-                        progress = int((processed / total_files) * 100)
-                        self.progress_callback(progress, f"Processing file {processed}/{total_files}")
+                            if self.progress_callback:
+                                self.progress_callback(len(results), f"Processed {len(results)} files")
+                except Exception as e:
+                    print(f"Skipping non-DICOM file {file_path}: {str(e)}")
+                    continue
         
         return results
 
     def _process_dataset(self, dataset, file_path):
+        """Process a single DICOM dataset"""
         try:
             # Create or get patient
             patient, _ = self._get_or_create_patient(dataset)

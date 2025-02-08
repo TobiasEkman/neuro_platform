@@ -123,7 +123,7 @@ CORE COMPONENTS
 
 API ENDPOINTS
 
-1. Patient Management Service (port 5004)
+1. Patient Management Service (port 5008)
 - /patients: Get all patients with filtering
 - /patients/<id>: Get, update, delete single patient
 - /patients/pid/<pid>: Get, update, delete single patient by PID
@@ -410,7 +410,7 @@ The Neuro Platform is a collection of microservices for managing patient data, i
 
 ## Services and Ports
 
-1. **Patient Management Service (@patient_management) - Port 5004**  
+1. **Patient Management Service (@patient_management) - Port 5008**  
    - Manages patient records in MongoDB.  
    - Main routes:
      - `GET /patients` – Retrieve patients (with optional filtering).  
