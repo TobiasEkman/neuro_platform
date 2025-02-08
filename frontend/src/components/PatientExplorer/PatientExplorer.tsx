@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { patientService } from '../../services/patientService';
-import { FaSort, FaSortUp, FaSortDown, FaSearch } from 'react-icons/fa';
+import { FaSort, FaSortUp, FaSortDown, FaSearch, FaUpload } from 'react-icons/fa';
 
 const Container = styled.div`
   padding: 2rem;
@@ -130,6 +130,26 @@ const Toast = styled.div<{ type: 'success' | 'error' }>`
   z-index: 1000;
 `;
 
+const UploadModal = styled.div`
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: white;
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+  z-index: 1000;
+`;
+
+const FileUpload = styled.div`
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 2px dashed ${props => props.theme.colors.border};
+  border-radius: 4px;
+  text-align: center;
+`;
+
 interface Patient {
   _id: string;
   name: string;
@@ -143,6 +163,15 @@ interface Patient {
 type SortField = 'name' | 'age' | 'diagnosis' | 'mgmtStatus' | 'operativeDate';
 type SortDirection = 'asc' | 'desc';
 
+interface PatientData {
+  pid?: string;
+  name: string;
+  age: number;
+  diagnosis: string;
+  mgmtStatus?: 'Methylated' | 'Unmethylated' | 'Unknown';
+  operativeDate?: string;
+}
+
 export const PatientExplorer: React.FC = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -154,6 +183,14 @@ export const PatientExplorer: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadType, setUploadType] = useState<'single' | 'bulk'>('single');
+  const [uploadData, setUploadData] = useState<PatientData>({
+    name: '',
+    age: 0,
+    diagnosis: '',
+    mgmtStatus: 'Unknown'
+  });
   
   const ITEMS_PER_PAGE = 10;
 
@@ -246,6 +283,45 @@ export const PatientExplorer: React.FC = () => {
 
   const totalPages = Math.ceil(filteredAndSortedPatients.length / ITEMS_PER_PAGE);
 
+  const handleSingleUpload = async () => {
+    try {
+      await patientService.updatePatient(uploadData.pid!, uploadData);
+      setShowUploadModal(false);
+      // Refresh patient list
+      loadPatients();
+    } catch (err) {
+      console.error('Upload error:', err);
+    }
+  };
+
+  const handleBulkUpload = async (file: File) => {
+    try {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const text = e.target?.result;
+        const rows = text?.toString().split('\n');
+        if (!rows) return;
+
+        const patients = rows.slice(1).map(row => {
+          const [name, age, diagnosis, mgmtStatus] = row.split(',');
+          return {
+            name: name.trim(),
+            age: parseInt(age),
+            diagnosis: diagnosis.trim(),
+            mgmtStatus: mgmtStatus?.trim() as 'Methylated' | 'Unmethylated' | 'Unknown'
+          };
+        });
+
+        await patientService.bulkUpdate(patients);
+        setShowUploadModal(false);
+        loadPatients();
+      };
+      reader.readAsText(file);
+    } catch (err) {
+      console.error('Bulk upload error:', err);
+    }
+  };
+
   if (loading) return <div>Loading patients...</div>;
   if (error) return <div>Error: {error}</div>;
 
@@ -255,6 +331,9 @@ export const PatientExplorer: React.FC = () => {
       
       <Header>
         <Title>Patient Explorer</Title>
+        <Button onClick={() => setShowUploadModal(true)}>
+          <FaUpload /> Upload Data
+        </Button>
       </Header>
 
       <SearchBar>
@@ -362,6 +441,47 @@ export const PatientExplorer: React.FC = () => {
           Next
         </Button>
       </Pagination>
+
+      {showUploadModal && (
+        <UploadModal>
+          <h2>Upload Patient Data</h2>
+          <div>
+            <Button onClick={() => setUploadType('single')}>Single Patient</Button>
+            <Button onClick={() => setUploadType('bulk')}>Bulk Upload</Button>
+          </div>
+
+          {uploadType === 'single' ? (
+            <div>
+              <input
+                type="text"
+                placeholder="PID"
+                value={uploadData.pid || ''}
+                onChange={e => setUploadData({...uploadData, pid: e.target.value})}
+              />
+              <select
+                value={uploadData.mgmtStatus}
+                onChange={e => setUploadData({...uploadData, mgmtStatus: e.target.value as any})}
+              >
+                <option value="Unknown">Unknown</option>
+                <option value="Methylated">Methylated</option>
+                <option value="Unmethylated">Unmethylated</option>
+              </select>
+              <Button onClick={handleSingleUpload}>Update</Button>
+            </div>
+          ) : (
+            <FileUpload>
+              <p>Upload CSV file with columns: name,age,diagnosis,mgmtStatus</p>
+              <input
+                type="file"
+                accept=".csv"
+                onChange={e => e.target.files && handleBulkUpload(e.target.files[0])}
+              />
+            </FileUpload>
+          )}
+          
+          <Button onClick={() => setShowUploadModal(false)}>Close</Button>
+        </UploadModal>
+      )}
     </Container>
   );
 }; 
