@@ -161,6 +161,7 @@ interface Patient {
   diagnosis: string;
   mgmtStatus?: string;
   operativeDate?: string;
+  studies?: { _id: string }[];
   [key: string]: any;
 }
 
@@ -377,7 +378,8 @@ export const PatientExplorer: React.FC = () => {
               { field: 'age', label: 'Age', width: '10%' },
               { field: 'diagnosis', label: 'Diagnosis', width: '25%' },
               { field: 'mgmtStatus', label: 'MGMT Status', width: '15%' },
-              { field: 'operativeDate', label: 'Operative Date', width: '15%' }
+              { field: 'operativeDate', label: 'Operative Date', width: '15%' },
+              { field: 'studies', label: 'Has DICOM', width: '10%' }
             ].map(({ field, label, width }) => (
               <SortableHeader 
                 key={field}
@@ -434,6 +436,13 @@ export const PatientExplorer: React.FC = () => {
                   onChange={e => setEditData(prev => prev ? { ...prev, operativeDate: e.target.value } : null)}
                 />
               ) : patient.operativeDate?.split('T')[0]}</Td>
+              <Td>
+                {patient.studies && patient.studies.length > 0 ? (
+                  <span style={{color: 'green'}}>✓</span>
+                ) : (
+                  <span style={{color: 'gray'}}>-</span>
+                )}
+              </Td>
               <Td>
                 {editingId === patient._id ? (
                   <>

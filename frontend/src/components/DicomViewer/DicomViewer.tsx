@@ -1,124 +1,286 @@
-import React, { useState, useEffect } from 'react';
-import { MPRViewer } from './components/MPRViewer';
-import { WindowLevelControls } from './components/WindowLevelControls';
-import { MeasurementTools } from './components/MeasurementTools';
-import { ViewerContainer, ControlsContainer, ViewerLayout } from './styles';
+import React, { useEffect, useRef, useState } from 'react';
+import * as cornerstone from '@cornerstonejs/core';
+import * as cornerstoneTools from '@cornerstonejs/tools';
+import styled from 'styled-components';
 import { dicomService } from '../../services/dicomService';
-import { DicomSeries } from '../../types/dicom';
-import { DicomDebug } from './DicomDebug';
-import { WelcomeView } from './components/WelcomeView';
+import { MPRView } from './components/MPRView';
 
-export interface DicomViewerProps {
-  seriesId: string;
+// Enhanced styled components
+const ViewerContainer = styled.div`
+  padding: 2rem;
+  background: ${props => props.theme.colors.background.primary};
+  min-height: 100vh;
+`;
+
+const ViewerGrid = styled.div<{ layout: 'single' | 'mpr' }>`
+  display: grid;
+  grid-template-columns: ${props => props.layout === 'single' ? '1fr' : 'repeat(2, 1fr)'};
+  grid-template-rows: ${props => props.layout === 'single' ? '1fr' : 'repeat(2, 1fr)'};
+  gap: 1rem;
+  margin-top: 1rem;
+  height: 70vh;
+`;
+
+const ViewerPanel = styled.div`
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+`;
+
+const ViewerHeader = styled.div`
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 0.5rem;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+`;
+
+// Add layout controls
+const LayoutControls = styled.div`
+  margin: 1rem 0;
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+`;
+
+const LayoutButton = styled.button<{ active: boolean }>`
+  padding: 0.5rem 1rem;
+  background: ${props => props.active ? props.theme.colors.primary : 'transparent'};
+  color: ${props => props.active ? 'white' : props.theme.colors.text.primary};
+  border: 1px solid ${props => props.theme.colors.border};
+  border-radius: 4px;
+  cursor: pointer;
+`;
+
+interface PatientData {
+  pid: string;
+  name: string;
+  studies: Array<{
+    studyInstanceUID: string;
+    studyDate: string;
+    series: Array<{
+      seriesInstanceUID: string;
+      modality: string;
+      filePath: string;
+    }>;
+  }>;
 }
 
-const DicomViewer: React.FC<DicomViewerProps> = ({ seriesId }) => {
-  const [image, setImage] = useState<Blob | null>(null);
-  const [metadata, setMetadata] = useState<DicomSeries | null>(null);
-  const [layout, setLayout] = useState<'single' | 'mpr'>('single');
-  const [windowLevel, setWindowLevel] = useState({ center: 127, width: 255 });
-  const [currentSlice, setCurrentSlice] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-  const [loadingError, setLoadingError] = useState<string | null>(null);
+const WindowLevelPresets = {
+  'Brain': { center: 40, width: 80 },
+  'Bone': { center: 400, width: 2000 },
+  'Lung': { center: -600, width: 1500 },
+  'Soft Tissue': { center: 50, width: 350 }
+};
 
+interface ViewportState {
+  element: HTMLElement | null;
+  imageIds: string[];
+  currentImageIndex: number;
+}
+
+const DicomViewer: React.FC = () => {
+  const viewerRef = useRef<HTMLDivElement>(null);
+  const [patients, setPatients] = useState<PatientData[]>([]);
+  const [selectedPatientPid, setSelectedPatientPid] = useState('');
+  const [selectedStudyUid, setSelectedStudyUid] = useState('');
+  const [selectedSeriesUid, setSelectedSeriesUid] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [activeTool, setActiveTool] = useState('wwwc'); // window/level by default
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [totalImages, setTotalImages] = useState(0);
+  const [layout, setLayout] = useState<'single' | 'mpr'>('single');
+  const [viewports, setViewports] = useState<Record<string, ViewportState>>({});
+  
+  // Add refs for MPR views
+  const axialRef = useRef<HTMLDivElement>(null);
+  const sagittalRef = useRef<HTMLDivElement>(null);
+  const coronalRef = useRef<HTMLDivElement>(null);
+
+  // 1. Load patients with DICOM data
   useEffect(() => {
-    const loadSeriesData = async () => {
+    const fetchPatients = async () => {
       try {
-        const [imageData, metaData] = await Promise.all([
-          dicomService.getImage(seriesId),
-          dicomService.getSeriesMetadata(seriesId)
-        ]);
-        setImage(imageData);
-        setMetadata(metaData);
-        setLoadingError(null);
-      } catch (err) {
-        console.error('Failed to load series data:', err);
-        setLoadingError('Failed to load DICOM data. Please ensure the Imaging Service is running.');
+        const response = await fetch('/api/patients');
+        if (!response.ok) throw new Error('Failed to fetch patients');
+        const data = await response.json();
+        // Only keep patients with studies
+        const patientsWithDicom = data.filter((p: PatientData) => p.studies?.length > 0);
+        setPatients(patientsWithDicom);
+      } catch (error) {
+        console.error(error);
+        setError('Failed to load patients');
       }
     };
-    loadSeriesData();
-  }, [seriesId]);
+    fetchPatients();
+  }, []);
 
-  if (seriesId === 'default') {
-    return <WelcomeView />;
+  // Initialize cornerstone tools
+  useEffect(() => {
+    cornerstoneTools.init();
+    cornerstoneTools.addTool(cornerstoneTools.WwwcTool);
+    cornerstoneTools.addTool(cornerstoneTools.ZoomTool);
+    cornerstoneTools.addTool(cornerstoneTools.PanTool);
+    cornerstoneTools.addTool(cornerstoneTools.LengthTool);
+    cornerstoneTools.addTool(cornerstoneTools.AngleTool);
+  }, []);
+
+  // Initialize MPR views
+  useEffect(() => {
+    if (layout === 'mpr') {
+      const initMPR = async () => {
+        if (!axialRef.current || !sagittalRef.current || !coronalRef.current) return;
+
+        // Initialize each view
+        await cornerstone.enable(axialRef.current);
+        await cornerstone.enable(sagittalRef.current);
+        await cornerstone.enable(coronalRef.current);
+
+        // Load current series if any
+        if (selectedSeriesUid) {
+          const series = findSelectedSeries(selectedSeriesUid);
+          if (series) {
+            await loadMPRViews(series);
+          }
+        }
+      };
+
+      initMPR();
+    }
+  }, [layout]);
+
+  // 2. Handle selection changes
+  const handlePatientChange = (pid: string) => {
+    setSelectedPatientPid(pid);
+    setSelectedStudyUid('');
+    setSelectedSeriesUid('');
+  };
+
+  const handleStudyChange = (studyUid: string) => {
+    setSelectedStudyUid(studyUid);
+    setSelectedSeriesUid('');
+  };
+
+  const handleSeriesChange = async (seriesUid: string) => {
+    setSelectedSeriesUid(seriesUid);
+    
+    const series = findSelectedSeries(seriesUid);
+    if (!series) return;
+
+    try {
+      // Load image stack
+      const imageArrayBuffer = await dicomService.loadLocalDicom(series.filePath);
+      const imageStack = await cornerstone.createImageStack(imageArrayBuffer);
+      
+      setTotalImages(imageStack.length);
+      setCurrentImageIndex(0);
+
+      if (viewerRef.current) {
+        await cornerstone.enable(viewerRef.current);
+        viewerRef.current.addEventListener('wheel', handleScroll);
+        await cornerstone.displayImage(viewerRef.current, imageStack[0]);
+      }
+    } catch (error) {
+      console.error('Failed to load DICOM:', error);
+      setError('Failed to load DICOM image');
+    }
+  };
+
+  const setTool = (toolName: string) => {
+    setActiveTool(toolName);
+    cornerstoneTools.setToolActive(toolName, { mouseButtonMask: 1 });
+  };
+
+  const applyWindowLevel = (center: number, width: number) => {
+    if (!viewerRef.current) return;
+    const viewport = cornerstone.getViewport(viewerRef.current);
+    viewport.voi.windowCenter = center;
+    viewport.voi.windowWidth = width;
+    cornerstone.setViewport(viewerRef.current, viewport);
+  };
+
+  const handleScroll = (event: WheelEvent) => {
+    if (event.deltaY > 0 && currentImageIndex < totalImages - 1) {
+      setCurrentImageIndex(prev => prev + 1);
+    } else if (event.deltaY < 0 && currentImageIndex > 0) {
+      setCurrentImageIndex(prev => prev - 1);
+    }
+  };
+
+  const loadMPRViews = async (series: any) => {
+    try {
+      const imageArrayBuffer = await dicomService.loadLocalDicom(series.filePath);
+      const volumeData = await cornerstone.createVolume(imageArrayBuffer);
+
+      // Display MPR views
+      if (axialRef.current && sagittalRef.current && coronalRef.current) {
+        await cornerstone.displayVolume(axialRef.current, volumeData, { orientation: 'axial' });
+        await cornerstone.displayVolume(sagittalRef.current, volumeData, { orientation: 'sagittal' });
+        await cornerstone.displayVolume(coronalRef.current, volumeData, { orientation: 'coronal' });
+      }
+    } catch (error) {
+      console.error('Failed to load MPR views:', error);
+      setError('Failed to load MPR views');
+    }
+  };
+
+  if (error) {
+    return <div>Error: {error}</div>;
   }
-
-  if (loadingError) {
-    return (
-      <div className="error-container">
-        <h3>Error Loading DICOM Series</h3>
-        <p>{loadingError}</p>
-        <p>Please check that:</p>
-        <ul>
-          <li>The Imaging Service is running on port 5003</li>
-          <li>MongoDB is running and accessible</li>
-          <li>The series ID "{seriesId}" exists</li>
-        </ul>
-      </div>
-    );
-  }
-
-  if (error) return <div>Error: {error}</div>;
-  if (!image || !metadata) return <div>Loading...</div>;
 
   return (
     <ViewerContainer>
-      <DicomDebug />
+      <h2>DICOM Viewer</h2>
 
-      <ControlsContainer>
-        <button onClick={() => setLayout(layout === 'single' ? 'mpr' : 'single')}>
-          {layout === 'single' ? 'Show MPR' : 'Single View'}
-        </button>
-        <WindowLevelControls
-          center={windowLevel.center}
-          width={windowLevel.width}
-          onChange={(center, width) => setWindowLevel({ center, width })}
-        />
-        <MeasurementTools
-          onMeasure={measurement => console.log('Measurement:', measurement)}
-          pixelSpacing={[1, 1]}
-        />
-      </ControlsContainer>
+      <LayoutControls>
+        <LayoutButton 
+          active={layout === 'single'} 
+          onClick={() => setLayout('single')}
+        >
+          Single View
+        </LayoutButton>
+        <LayoutButton 
+          active={layout === 'mpr'} 
+          onClick={() => setLayout('mpr')}
+        >
+          MPR Views
+        </LayoutButton>
+      </LayoutControls>
 
-      <ViewerLayout className={layout}>
+      <ViewerGrid layout={layout}>
         {layout === 'single' ? (
-          <MPRViewer 
-            seriesId={seriesId} 
-            orientation="axial"
-            windowCenter={windowLevel.center}
-            windowWidth={windowLevel.width}
-            currentSlice={currentSlice}
-            onSliceChange={setCurrentSlice}
-          />
+          <ViewerPanel>
+            <ViewerHeader>
+              <span>Main View</span>
+              <span>{currentImageIndex + 1} / {totalImages}</span>
+            </ViewerHeader>
+            <div ref={viewerRef} style={{ width: '100%', height: '100%' }} />
+          </ViewerPanel>
         ) : (
           <>
-            <MPRViewer 
-              seriesId={seriesId} 
-              orientation="axial"
-              windowCenter={windowLevel.center}
-              windowWidth={windowLevel.width}
-              currentSlice={currentSlice}
-              onSliceChange={setCurrentSlice}
-            />
-            <MPRViewer 
-              seriesId={seriesId} 
-              orientation="sagittal"
-              windowCenter={windowLevel.center}
-              windowWidth={windowLevel.width}
-              currentSlice={currentSlice}
-              onSliceChange={setCurrentSlice}
-            />
-            <MPRViewer 
-              seriesId={seriesId} 
-              orientation="coronal"
-              windowCenter={windowLevel.center}
-              windowWidth={windowLevel.width}
-              currentSlice={currentSlice}
-              onSliceChange={setCurrentSlice}
-            />
+            <ViewerPanel>
+              <ViewerHeader>Axial</ViewerHeader>
+              <div ref={axialRef} style={{ width: '100%', height: '100%' }} />
+            </ViewerPanel>
+            <ViewerPanel>
+              <ViewerHeader>Sagittal</ViewerHeader>
+              <div ref={sagittalRef} style={{ width: '100%', height: '100%' }} />
+            </ViewerPanel>
+            <ViewerPanel>
+              <ViewerHeader>Coronal</ViewerHeader>
+              <div ref={coronalRef} style={{ width: '100%', height: '100%' }} />
+            </ViewerPanel>
           </>
         )}
-      </ViewerLayout>
+      </ViewerGrid>
     </ViewerContainer>
   );
 };

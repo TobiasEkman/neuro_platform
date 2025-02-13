@@ -4,6 +4,7 @@ import { upload } from '../middleware/upload';
 import { ParsedQs } from 'qs';
 import multer from 'multer';
 import { logger } from '../utils/logger';
+import { DicomModel } from '../models/dicomModel';
 
 const router = Router();
 
@@ -149,17 +150,24 @@ router.get('/series/:seriesId/metadata', async (req, res) => {
     }
 });
 
-router.post('/upload', upload.array('files'), async (req: Request, res: Response) => {
+router.post('/metadata', async (req: Request, res: Response) => {
     try {
-        if (!req.files || !Array.isArray(req.files)) {
-            return res.status(400).json({ error: 'No files uploaded' });
-        }
+        const { metadata, patientId } = req.body;
         
-        const response = await axios.post(
-            `${IMAGING_SERVICE_URL}/api/dicom/upload`,
-            req.files
+        // Store only metadata in MongoDB
+        const result = await DicomModel.create(
+            metadata.map((item: any) => ({
+                ...item,
+                patientId,
+                // Store relative path instead of full path
+                filePath: item.localPath
+            }))
         );
-        res.json(response.data);
+
+        res.json({
+            message: 'Metadata stored successfully',
+            studies: result
+        });
     } catch (err) {
         handleServiceError(err, res);
     }

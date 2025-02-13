@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { DicomStudy, DicomSeries, DicomImage, DicomImportResult } from '../types/dicom';
+import dcmjs from 'dcmjs';
 
 // Configure axios defaults
 axios.defaults.baseURL = '/api';
@@ -17,17 +18,33 @@ interface VolumeData {
 export const dicomService = {
   // DicomManager operations
   uploadFiles: async (files: FileList, patientId?: string): Promise<DicomImportResult> => {
-    const formData = new FormData();
-    Array.from(files).forEach(file => {
-      const relativePath = file.webkitRelativePath || file.name;
-      formData.append('files', file, relativePath);
+    const metadata = [];
+    
+    for (const file of files) {
+      try {
+        // Read and parse DICOM locally
+        const arrayBuffer = await file.arrayBuffer();
+        const dicomData = dcmjs.data.DicomMessage.readFile(arrayBuffer);
+        
+        // Extract only necessary metadata
+        metadata.push({
+          studyInstanceUID: dicomData.string('x0020000d'),
+          seriesInstanceUID: dicomData.string('x0020000e'),
+          modality: dicomData.string('x00080060'),
+          studyDate: dicomData.string('x00080020'),
+          localPath: file.webkitRelativePath // Store relative path only
+        });
+      } catch (error) {
+        console.error(`Error parsing file ${file.name}:`, error);
+      }
+    }
+
+    // Send only metadata to backend
+    const response = await axios.post('/api/dicom/metadata', {
+      metadata,
+      patientId
     });
     
-    if (patientId) {
-      formData.append('pid', patientId);
-    }
-    
-    const response = await axios.post('/dicom/upload', formData);
     return response.data;
   },
 
@@ -134,4 +151,24 @@ export const dicomService = {
       throw error;
     }
   },
+
+  // Add method to load local DICOM files
+  loadLocalDicom: async (relativePath: string): Promise<ArrayBuffer> => {
+    const baseFolder = localStorage.getItem('dicomBaseFolder');
+    if (!baseFolder) {
+      throw new Error('DICOM folder not configured');
+    }
+
+    try {
+      // Combine base folder with relative path
+      const fullPath = `${baseFolder}/${relativePath}`;
+      const fileHandle = await window.showOpenFilePicker({
+        startIn: fullPath
+      });
+      const file = await fileHandle[0].getFile();
+      return await file.arrayBuffer();
+    } catch (error) {
+      throw new Error(`Failed to load DICOM file: ${error}`);
+    }
+  }
 }; 
