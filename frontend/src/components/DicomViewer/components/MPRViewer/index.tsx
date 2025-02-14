@@ -1,6 +1,29 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { dicomService } from '../../../../services/dicomService';
+import dicomService from '../../../../services/dicomService';
 import { Dimensions, VolumeData } from '../../../../types/medical';
+import styled from 'styled-components';
+
+const ViewerContainer = styled.div`
+  width: 100%;
+  height: 100%;
+  background: #000;
+  position: relative;
+`;
+
+const Canvas = styled.canvas`
+  width: 100%;
+  height: 100%;
+`;
+
+const SliceControls = styled.div`
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+`;
 
 export interface MPRViewerProps {
   seriesId: string;

@@ -1,13 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { DicomUploader } from './DicomUploader';
+import React, { useState, useEffect, useCallback } from 'react';
 import { DicomList } from './DicomList';
-import { DicomImportResult, DicomStudy } from '../../types/dicom';
-import { dicomService } from '../../services/dicomService';
+import { DicomStudy, DicomImportResult } from '../../types/dicom';
+import dicomService from '../../services/dicomService';
 import { usePatient } from '../../hooks/usePatient';
-import { useDicomData } from '../../hooks/useDicomData';
 import { UploadSection } from './UploadSection';
 import { FileUpload } from './FileUpload';
-import { StatsButton } from './StatsButton';
 import styled from 'styled-components';
 import { FaSpinner, FaTimes } from 'react-icons/fa';
 import { logger } from '../../utils/logger';
@@ -99,155 +96,79 @@ export const DicomManager: React.FC<DicomManagerProps> = ({
   patientId,
   onUploadComplete
 }) => {
-  const [folderPath, setFolderPath] = useState('');
-  const [dicomdirPath, setDicomdirPath] = useState('');
-  const [importResult, setImportResult] = useState<DicomImportResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [stats, setStats] = useState<any>(null);
-  const [showStatsModal, setShowStatsModal] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
   const [studies, setStudies] = useState<DicomStudy[]>([]);
-  const { patient, loading: patientLoading } = usePatient(patientId);
-  const { latestCTFindings, loading: dicomLoading } = useDicomData(patientId);
-  const abortController = useRef<AbortController | null>(null);
+  const [selectedStudyId, setSelectedStudyId] = useState<string>();
+  const [error, setError] = useState<string | null>(null);
+  const { patient } = usePatient(patientId);
 
+  // Fetch studies when patientId changes
   useEffect(() => {
     const fetchStudies = async () => {
       try {
-        logger.debug('Fetching studies...', { patientId });
-        const query = patientId && patientId !== 'default' 
-          ? `patient:${patientId}`
-          : '';
-        
-        const data = await dicomService.searchStudies(query);
-        logger.debug('Received studies:', { count: data?.length, data });
-        setStudies(Array.isArray(data) ? data : []);
-      } catch (err) {
-        logger.error('Failed to fetch studies:', err);
-        setError(err instanceof Error ? err.message : 'Failed to fetch studies');
-        setStudies([]);
+        if (patientId) {
+          const fetchedStudies = await dicomService.searchStudies(`patient:${patientId}`);
+          setStudies(fetchedStudies);
+        } else {
+          // If no patientId, fetch all studies
+          const fetchedStudies = await dicomService.searchStudies('');
+          setStudies(fetchedStudies);
+        }
+      } catch (error) {
+        console.error('Failed to fetch studies:', error);
+        setError(error instanceof Error ? error.message : 'Failed to fetch studies');
       }
     };
+
     fetchStudies();
   }, [patientId]);
 
-  if (patientLoading || dicomLoading) {
-    return <div>Loading...</div>;
-  }
-
-  const handleDicomUpload = async (files: FileList) => {
-    if (files.length === 0) return;
-
+  const handleDirectorySelect = useCallback(async (directoryPath: string) => {
     try {
-      setIsUploading(true);
-      setError(null);
-      setUploadProgress(0);
+      // Tell backend to scan this directory
+      const result = await dicomService.parseLocalDirectory(directoryPath);
       
-      abortController.current = new AbortController();
-      
-      const formData = new FormData();
-      Array.from(files).forEach(file => {
-        const relativePath = file.webkitRelativePath || file.name;
-        formData.append('files', file, relativePath);
-      });
-      
-      if (patientId) {
-        formData.append('pid', patientId);
-      }
-      
-      const response = await fetch('/api/dicom/upload', {
-        method: 'POST',
-        body: formData,
-        signal: abortController.current.signal,
-        // OBS: onUploadProgress tas bort då fetch inte stöder progress tracking nativt.
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Upload failed: ${response.statusText}`);
-      }
+      // Refresh studies list
+      const updatedStudies = await dicomService.searchStudies(
+        patientId ? `patient:${patientId}` : ''
+      );
+      setStudies(updatedStudies);
 
-      const result = await response.json();
-      setImportResult(result);
-      
       if (onUploadComplete) {
         onUploadComplete(result);
       }
-
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
-        setError('Upload cancelled');
-      } else {
-        console.error('Upload error:', error);
-        setError(error instanceof Error ? error.message : 'Failed to upload files');
-      }
-    } finally {
-      setIsUploading(false);
-      setUploadProgress(0);
-      abortController.current = null;
+    } catch (error) {
+      console.error('Directory processing error:', error);
+      setError(error instanceof Error ? error.message : 'Failed to process directory');
     }
-  };
+  }, [patientId, onUploadComplete]);
 
-  const handleCancelUpload = () => {
-    if (abortController.current) {
-      abortController.current.abort();
-    }
-  };
-
-  const showStats = async () => {
-    try {
-      const stats = await dicomService.getStats();
-      setStats(stats);
-      setShowStatsModal(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch stats');
-    }
-  };
+  const handleStudySelect = useCallback((study: DicomStudy) => {
+    setSelectedStudyId(study.study_instance_uid);
+  }, []);
 
   return (
     <DicomManagerContainer>
-      <h2>DICOM Studies</h2>
+      <h2>DICOM Studies {patient && `for ${patient.name}`}</h2>
       
       {/* Error display */}
       {error && (
         <ErrorMessage>
           {error}
-          <CloseButton onClick={() => setError(null)}>
-            <FaTimes />
-          </CloseButton>
+          <CloseButton onClick={() => setError(null)}>×</CloseButton>
         </ErrorMessage>
       )}
 
       <UploadSection>
         <FileUpload 
-          onUpload={handleDicomUpload}
-          disabled={isUploading}
+          onDirectorySelect={handleDirectorySelect}
         />
-        <StatsButton onClick={showStats}>
-          Show Dataset Statistics
-        </StatsButton>
       </UploadSection>
       
-      {/* Loading overlay */}
-      {isUploading && (
-        <LoadingOverlay>
-          <Spinner />
-          <div>Uploading DICOM files... {uploadProgress}%</div>
-          <button onClick={handleCancelUpload}>Cancel Upload</button>
-        </LoadingOverlay>
-      )}
-      
-      <DicomList studies={studies} />
-      
-      {/* Stats Modal */}
-      {showStatsModal && stats && (
-        <StatsModal onClick={() => setShowStatsModal(false)}>
-          <ModalContent onClick={e => e.stopPropagation()}>
-            <h2>Dataset Statistics</h2>
-            <pre>{JSON.stringify(stats, null, 2)}</pre>
-          </ModalContent>
-        </StatsModal>
-      )}
+      <DicomList 
+        studies={studies}
+        selectedStudyId={selectedStudyId}
+        onStudySelect={handleStudySelect}
+      />
     </DicomManagerContainer>
   );
 }; 

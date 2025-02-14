@@ -595,3 +595,113 @@ Key points:
 2. Alla API-svar innehåller detaljerade felmeddelanden
 3. Bulk-upload stödjer partiell validering
 4. Automatisk PID-generering för nya patienter
+
+DICOM MANAGEMENT
+===============
+
+The platform uses a local file-based approach for DICOM data management, leveraging Docker volumes to share data between services.
+
+## Architecture Overview
+
+1. **Frontend (React + TypeScript)**
+   - DicomManager component for browsing local DICOM studies
+   - FileUpload component for selecting local DICOM directories
+   - Uses dicomService for API communication
+   - Displays study list and metadata
+
+2. **Backend (Node.js + Express)**
+   - Acts as a proxy between frontend and imaging_data service
+   - Routes:
+     - `GET /api/dicom/image/:instanceUid` - Stream DICOM images
+     - `POST /api/dicom/parse/folder` - Parse local DICOM directory
+     - `GET /api/dicom/search` - Search DICOM studies
+     - `GET /api/dicom/stats` - Get dataset statistics
+
+3. **Imaging Data Service (Flask, port 5003)**
+   - Handles DICOM file parsing and management
+   - Reads from mounted volume (`/data/dicom`)
+   - Uses MongoDB for metadata storage
+   - Key components:
+     - FolderParser: Scans directories for DICOM files
+     - DicomdirParser: Parses DICOMDIR structures
+     - MGMTPreprocessor: Prepares MRI sequences
+
+## Data Flow
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant FE as Frontend (DicomManager)
+    participant BE as Backend (Node)
+    participant IS as Imaging Service
+    participant DB as MongoDB
+    participant FS as File System
+
+    User->>FE: Select DICOM Directory
+    FE->>BE: POST /api/dicom/parse/folder
+    BE->>IS: POST /api/dicom/parse/folder
+    IS->>FS: Read files from mounted volume
+    IS->>IS: Parse DICOM metadata
+    IS->>DB: Store metadata & file paths
+    IS-->>BE: Return study information
+    BE-->>FE: Return study list
+    FE-->>User: Display available studies
+
+    User->>FE: Select study/image
+    FE->>BE: GET /api/dicom/image/:instanceUid
+    BE->>IS: GET /api/dicom/image/:instanceUid
+    IS->>FS: Read image file
+    IS-->>BE: Stream image data
+    BE-->>FE: Stream image data
+    FE-->>User: Display image
+```
+
+## Directory Structure
+
+```
+/data/dicom/           # Shared Docker volume
+├── patient_001/       # Patient directories
+│   ├── study_1/      # Study directories
+│   │   ├── series_1/ # Series directories
+│   │   └── ...
+│   └── ...
+└── ...
+```
+
+## Setup
+
+1. **Docker Configuration**
+   ```yaml
+   services:
+     frontend:
+       volumes:
+         - ../dicom_data:/data/dicom:ro
+     
+     backend:
+       volumes:
+         - ../dicom_data:/data/dicom:ro
+     
+     imaging_data:
+       volumes:
+         - ../dicom_data:/data/dicom:ro
+   ```
+
+2. **Usage**
+   - Place DICOM files in the local `dicom_data` directory
+   - Use DicomManager to select and parse directories
+   - Access images through the web interface
+
+## Key Features
+
+- **Local File Access**: All services access DICOM files through a shared read-only volume
+- **No File Upload**: Files remain on disk; only metadata is stored in MongoDB
+- **Directory Scanning**: Automatic detection and parsing of DICOM files
+- **Study Organization**: Hierarchical organization of studies/series/instances
+- **Efficient Retrieval**: Direct file access for image streaming
+
+## Security Considerations
+
+- Read-only volume mounting prevents accidental file modifications
+- Access control through Node.js backend
+- Validation of file paths to prevent directory traversal
+- Proper error handling for missing or invalid files

@@ -7,6 +7,8 @@ services:
       dockerfile: ../docker/frontend.Dockerfile
     ports:
       - "3000:3000"
+    volumes:
+      - ../dicom_data:/data/dicom:ro  # Read-only mount for DICOM data
     depends_on:
       - backend
 
@@ -16,6 +18,8 @@ services:
       dockerfile: ../docker/backend.Dockerfile
     ports:
       - "4000:4000"
+    volumes:
+      - ../dicom_data:/data/dicom:ro  # Read-only mount for DICOM data
     depends_on:
       - mongodb
       - tumor_analysis
@@ -60,10 +64,12 @@ services:
       dockerfile: ../docker/flask.Dockerfile
     ports:
       - "5003:5003"
+    volumes:
+      - ../dicom_data:/data/dicom:ro  # Read-only mount for DICOM data
+    environment:
+      - UPLOAD_DIR=/data/dicom
     depends_on:
       - mongodb
-    volumes:
-      - dicom_data:/data/dicom
 
   local_inference:
     build:

@@ -8,7 +8,7 @@ import { DicomModel } from '../models/dicomModel';
 
 const router = Router();
 
-const IMAGING_SERVICE_URL = process.env.IMAGING_SERVICE_URL || 'http://localhost:5003';
+const IMAGING_SERVICE_URL = 'http://imaging_data:5003';
 
 // Helper function to handle service errors with proper typing
 const handleServiceError = (err: unknown, res: Response) => {
@@ -41,6 +41,7 @@ router.get('/series/:seriesId', async (req, res) => {
 
 router.get('/image/:instanceUid', async (req, res) => {
     try {
+        // Get image directly from the mounted volume via imaging service
         const response = await axios.get(
             `${IMAGING_SERVICE_URL}/api/dicom/image/${req.params.instanceUid}`,
             { responseType: 'stream' }
@@ -51,12 +52,14 @@ router.get('/image/:instanceUid', async (req, res) => {
     }
 });
 
-// Keep existing routes
+// Parse local DICOM folder
 router.post('/parse/folder', async (req, res) => {
     try {
+        const { folderPath } = req.body;
+        // Call imaging service to scan the directory
         const response = await axios.post(
             `${IMAGING_SERVICE_URL}/api/dicom/parse/folder`,
-            req.body
+            { folderPath }
         );
         res.json(response.data);
     } catch (err) {
@@ -64,15 +67,18 @@ router.post('/parse/folder', async (req, res) => {
     }
 });
 
+// Parse DICOMDIR file
 router.post('/parse/dicomdir', async (req, res) => {
     try {
+        const { dicomdirPath } = req.body;
         const response = await axios.post(
             `${IMAGING_SERVICE_URL}/api/dicom/parse/dicomdir`,
-            req.body
+            { dicomdirPath }
         );
         res.json(response.data);
     } catch (err: unknown) {
-        handleServiceError(err, res);
+        const message = err instanceof Error ? err.message : 'An unknown error occurred';
+        res.status(500).json({ message });
     }
 });
 
@@ -98,14 +104,16 @@ router.get('/list', async (req, res) => {
     }
 });
 
-// Add these routes
-router.get('/search', async (req: Request<{}, any, any, ParsedQs>, res: Response) => {
+// Search studies
+router.get('/search', async (req, res) => {
     try {
-        const searchQuery = req.query.q ? `?q=${req.query.q}` : '';
-        const response = await axios.get(`${IMAGING_SERVICE_URL}/api/dicom/search${searchQuery}`);
+        const response = await axios.get(
+            `${IMAGING_SERVICE_URL}/api/dicom/search?q=${req.query.q}`
+        );
         res.json(response.data);
-    } catch (err) {
-        handleServiceError(err, res);
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'An unknown error occurred';
+        res.status(500).json({ message });
     }
 });
 
@@ -118,12 +126,14 @@ router.get('/stats', async (req: Request, res: Response) => {
     }
 });
 
+// Dataset analysis
 router.get('/dataset/analyze', async (req, res) => {
     try {
         const response = await axios.get(`${IMAGING_SERVICE_URL}/api/dataset/analyze`);
         res.json(response.data);
-    } catch (err) {
-        handleServiceError(err, res);
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'An unknown error occurred';
+        res.status(500).json({ message });
     }
 });
 

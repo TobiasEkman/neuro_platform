@@ -1,38 +1,41 @@
 import React, { ChangeEvent } from 'react';
 import styled from 'styled-components';
 
-// Utöka InputHTMLAttributes med våra custom attribut
+// Define custom attributes for input element
 interface CustomInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   webkitdirectory?: string;
   directory?: string;
 }
 
 interface Props {
-  onUpload: (files: FileList) => void;
+  onDirectorySelect: (path: string) => void;
   disabled?: boolean;
 }
 
-export const FileUpload: React.FC<Props> = ({ onUpload, disabled }) => {
+export const FileUpload: React.FC<Props> = ({ onDirectorySelect, disabled }) => {
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files) {
-      onUpload(event.target.files);
+    // Get the selected directory path
+    const directory = event.target.files?.[0]?.webkitRelativePath.split('/')[0];
+    if (directory) {
+      onDirectorySelect(directory);
     }
   };
 
   return (
     <UploadContainer>
-      <StyledInput
+      <input
         type="file"
-        id="file-upload"
+        {...({ webkitdirectory: '', directory: '' } as CustomInputProps)}
         onChange={handleChange}
-        webkitdirectory=""
-        directory=""
-        multiple
-        disabled={disabled}
+        style={{ display: 'none' }}
+        id="directory-input"
       />
-      <UploadLabel htmlFor="file-upload" disabled={disabled}>
-        {disabled ? 'Uploading...' : 'Choose DICOM folder'}
-      </UploadLabel>
+      <UploadButton
+        onClick={() => document.getElementById('directory-input')?.click()}
+        disabled={disabled}
+      >
+        Select DICOM Directory
+      </UploadButton>
     </UploadContainer>
   );
 };
@@ -44,14 +47,11 @@ const UploadContainer = styled.div`
   gap: 1rem;
 `;
 
-const StyledInput = styled.input<CustomInputProps>`
-  display: none;
-`;
-
-const UploadLabel = styled.label<{ disabled?: boolean }>`
-  padding: 0.5rem 1rem;
+const UploadButton = styled.button<{ disabled?: boolean }>`
+  padding: 0.75rem 1.5rem;
   background: ${props => props.disabled ? '#ccc' : props.theme.colors.primary};
   color: white;
+  border: none;
   border-radius: 4px;
   cursor: ${props => props.disabled ? 'not-allowed' : 'pointer'};
   transition: opacity 0.2s;

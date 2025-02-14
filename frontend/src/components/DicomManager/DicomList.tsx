@@ -3,6 +3,58 @@ import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { DicomStudy } from '../../types/dicom';
 
+interface DicomListProps {
+  studies: DicomStudy[];
+  onStudySelect?: (study: DicomStudy) => void;
+  selectedStudyId?: string;
+}
+
+export const DicomList: React.FC<DicomListProps> = ({ 
+  studies = [], 
+  onStudySelect,
+  selectedStudyId 
+}) => {
+  const navigate = useNavigate();
+
+  if (!studies || studies.length === 0) {
+    return (
+      <StudyList>
+        <StudyItem>
+          <StudyInfo>
+            <h3>No studies available</h3>
+            <p>Select a directory to scan for DICOM files</p>
+          </StudyInfo>
+        </StudyItem>
+      </StudyList>
+    );
+  }
+
+  return (
+    <StudyList>
+      {studies.map(study => (
+        <StudyItem 
+          key={study.study_instance_uid}
+          selected={study.study_instance_uid === selectedStudyId}
+          onClick={() => onStudySelect?.(study)}
+        >
+          <StudyInfo>
+            <h3>{study.study_description || 'Untitled Study'}</h3>
+            <p>Date: {new Date(study.study_date).toLocaleDateString()}</p>
+            <p>Series Count: {study.series?.length || 0}</p>
+            <p>Modality: {study.modality}</p>
+          </StudyInfo>
+          <ViewButton onClick={(e) => {
+            e.stopPropagation();
+            navigate(`/dicom-viewer/${study.study_instance_uid}`);
+          }}>
+            View Images
+          </ViewButton>
+        </StudyItem>
+      ))}
+    </StudyList>
+  );
+};
+
 const StudyList = styled.div`
   display: flex;
   flex-direction: column;
@@ -10,14 +62,22 @@ const StudyList = styled.div`
   margin: 20px 0;
 `;
 
-const StudyItem = styled.div`
+interface StudyItemProps {
+  selected?: boolean;
+}
+
+const StudyItem = styled.div<StudyItemProps>`
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 15px;
-  background: white;
+  background: ${props => props.selected ? '#e0e0e0' : 'white'};
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  cursor: pointer;
+  &:hover {
+    background: #f0f0f0;
+  }
 `;
 
 const StudyInfo = styled.div`
@@ -41,42 +101,4 @@ const ViewButton = styled.button`
   &:hover {
     background: #2980b9;
   }
-`;
-
-interface DicomListProps {
-  studies: DicomStudy[];
-}
-
-export const DicomList: React.FC<DicomListProps> = ({ studies = [] }) => {
-  const navigate = useNavigate();
-
-  if (!studies || studies.length === 0) {
-    return (
-      <StudyList>
-        <StudyItem>
-          <StudyInfo>
-            <h3>No studies available</h3>
-            <p>Upload DICOM files to get started</p>
-          </StudyInfo>
-        </StudyItem>
-      </StudyList>
-    );
-  }
-
-  return (
-    <StudyList>
-      {studies.map(study => (
-        <StudyItem key={study.study_instance_uid}>
-          <StudyInfo>
-            <h3>{study.study_description || 'Untitled Study'}</h3>
-            <p>Date: {new Date(study.study_date).toLocaleDateString()}</p>
-            <p>Type: {study.type}</p>
-          </StudyInfo>
-          <ViewButton onClick={() => navigate(`/dicom-viewer/${study.study_instance_uid}`)}>
-            View Images
-          </ViewButton>
-        </StudyItem>
-      ))}
-    </StudyList>
-  );
-}; 
+`; 

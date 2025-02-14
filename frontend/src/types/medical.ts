@@ -134,4 +134,9 @@ export interface VolumeData {
   spacing?: [number, number, number];
   windowCenter?: number;
   windowWidth?: number;
+}
+
+export interface WindowLevel {
+  windowCenter: number;
+  windowWidth: number;
 } 

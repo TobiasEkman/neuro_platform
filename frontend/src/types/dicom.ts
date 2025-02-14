@@ -1,20 +1,17 @@
 export interface DicomStudy {
     study_instance_uid: string;
-    patient_id: string;
     study_date: string;
-    study_time: string;
-    study_description: string;
-    type: 'MRI' | 'CT' | 'fMRI' | 'DTI';
-    date: Date;
+    study_description?: string;
+    modality?: string;
+    type?: string;
+    series?: DicomSeries[];
 }
 
 export interface DicomSeries {
-    seriesUID: string;
-    studyUID: string;
+    series_instance_uid: string;
     modality: string;
-    description: string;
-    numberOfImages: number;
-    baseDirectory: string;  // Base directory for all images in series
+    series_number: number;
+    series_description?: string;
 }
 
 export interface DicomInstance {
@@ -25,21 +22,14 @@ export interface DicomInstance {
 }
 
 export interface DicomImage {
-    instanceUID: string;
-    seriesUID: string;
-    studyUID: string;
-    filePath: string;      // Path to the actual DICOM file
+    sop_instance_uid: string;
+    instance_number: number;
     rows: number;
     columns: number;
-    windowCenter: number;
-    windowWidth: number;
-    pixelSpacing: [number, number];
+    file_path: string;
 }
 
 export interface DicomImportResult {
     message: string;
-    studies: {
-        patient_id: string;
-        study_instance_uid: string;
-    }[];
+    studies: DicomStudy[];
 } 
