@@ -4,6 +4,7 @@ import * as cornerstoneTools from '@cornerstonejs/tools';
 import styled from 'styled-components';
 import { dicomService } from '../../services/dicomService';
 import { MPRView } from './components/MPRView';
+import { ProgressBar } from './ProgressBar';
 
 // Enhanced styled components
 const ViewerContainer = styled.div`
@@ -60,7 +61,23 @@ const LayoutButton = styled.button<{ active: boolean }>`
   cursor: pointer;
 `;
 
-interface PatientData {
+const SelectionBar = styled.div`
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  background: ${props => props.theme.colors.background.secondary};
+  border-radius: 8px;
+`;
+
+const Select = styled.select`
+  padding: 0.5rem;
+  border-radius: 4px;
+  border: 1px solid ${props => props.theme.colors.border};
+`;
+
+interface Patient {
+  _id: string;
   pid: string;
   name: string;
   studies: Array<{
@@ -89,10 +106,10 @@ interface ViewportState {
 
 const DicomViewer: React.FC = () => {
   const viewerRef = useRef<HTMLDivElement>(null);
-  const [patients, setPatients] = useState<PatientData[]>([]);
-  const [selectedPatientPid, setSelectedPatientPid] = useState('');
-  const [selectedStudyUid, setSelectedStudyUid] = useState('');
-  const [selectedSeriesUid, setSelectedSeriesUid] = useState('');
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [selectedPatientId, setSelectedPatientId] = useState<string>('');
+  const [selectedStudyId, setSelectedStudyId] = useState<string>('');
+  const [selectedSeriesId, setSelectedSeriesId] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState('wwwc'); // window/level by default
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -105,23 +122,24 @@ const DicomViewer: React.FC = () => {
   const sagittalRef = useRef<HTMLDivElement>(null);
   const coronalRef = useRef<HTMLDivElement>(null);
 
-  // 1. Load patients with DICOM data
+  // Fetch patients with DICOM data
   useEffect(() => {
     const fetchPatients = async () => {
       try {
-        const response = await fetch('/api/patients');
-        if (!response.ok) throw new Error('Failed to fetch patients');
-        const data = await response.json();
-        // Only keep patients with studies
-        const patientsWithDicom = data.filter((p: PatientData) => p.studies?.length > 0);
-        setPatients(patientsWithDicom);
+        const patientsData = await dicomService.getPatientsWithDicom();
+        setPatients(patientsData);
       } catch (error) {
-        console.error(error);
-        setError('Failed to load patients');
+        console.error('Failed to fetch patients:', error);
+        setError('Failed to load patient list');
       }
     };
+
     fetchPatients();
   }, []);
+
+  // Get current patient's studies
+  const currentPatient = patients.find(p => p._id === selectedPatientId);
+  const currentStudy = currentPatient?.studies.find(s => s.studyInstanceUID === selectedStudyId);
 
   // Initialize cornerstone tools
   useEffect(() => {
@@ -145,8 +163,8 @@ const DicomViewer: React.FC = () => {
         await cornerstone.enable(coronalRef.current);
 
         // Load current series if any
-        if (selectedSeriesUid) {
-          const series = findSelectedSeries(selectedSeriesUid);
+        if (selectedSeriesId) {
+          const series = findSelectedSeries(selectedSeriesId);
           if (series) {
             await loadMPRViews(series);
           }
@@ -159,18 +177,18 @@ const DicomViewer: React.FC = () => {
 
   // 2. Handle selection changes
   const handlePatientChange = (pid: string) => {
-    setSelectedPatientPid(pid);
-    setSelectedStudyUid('');
-    setSelectedSeriesUid('');
+    setSelectedPatientId(pid);
+    setSelectedStudyId('');
+    setSelectedSeriesId('');
   };
 
   const handleStudyChange = (studyUid: string) => {
-    setSelectedStudyUid(studyUid);
-    setSelectedSeriesUid('');
+    setSelectedStudyId(studyUid);
+    setSelectedSeriesId('');
   };
 
   const handleSeriesChange = async (seriesUid: string) => {
-    setSelectedSeriesUid(seriesUid);
+    setSelectedSeriesId(seriesUid);
     
     const series = findSelectedSeries(seriesUid);
     if (!series) return;
@@ -239,6 +257,60 @@ const DicomViewer: React.FC = () => {
   return (
     <ViewerContainer>
       <h2>DICOM Viewer</h2>
+
+      <SelectionBar>
+        {/* Patient Selection */}
+        <div>
+          <label>Patient: </label>
+          <Select 
+            value={selectedPatientId} 
+            onChange={(e) => setSelectedPatientId(e.target.value)}
+          >
+            <option value="">Select Patient</option>
+            {patients.map(patient => (
+              <option key={patient._id} value={patient._id}>
+                {patient.pid} - {patient.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+
+        {/* Study Selection */}
+        {currentPatient && (
+          <div>
+            <label>Study: </label>
+            <Select
+              value={selectedStudyId}
+              onChange={(e) => setSelectedStudyId(e.target.value)}
+            >
+              <option value="">Select Study</option>
+              {currentPatient.studies.map(study => (
+                <option key={study.studyInstanceUID} value={study.studyInstanceUID}>
+                  {new Date(study.studyDate).toLocaleDateString()} 
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
+
+        {/* Series Selection */}
+        {currentStudy && (
+          <div>
+            <label>Series: </label>
+            <Select
+              value={selectedSeriesId}
+              onChange={(e) => setSelectedSeriesId(e.target.value)}
+            >
+              <option value="">Select Series</option>
+              {currentStudy.series.map(series => (
+                <option key={series.seriesInstanceUID} value={series.seriesInstanceUID}>
+                  {series.modality}
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
+      </SelectionBar>
 
       <LayoutControls>
         <LayoutButton 

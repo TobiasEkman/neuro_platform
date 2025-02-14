@@ -48,5 +48,30 @@ class MGMTPreprocessor(BaseParser):
     
     def _normalize_sequence(self, series):
         """Normalize a single MRI sequence"""
-        # Implementation would handle actual normalization
-        return np.zeros((256, 256))  # Placeholder 
+        try:
+            # Load pixel data from DICOM files
+            pixel_data = self._load_pixel_data(series)
+            
+            # Apply standard preprocessing steps
+            normalized = (pixel_data - np.mean(pixel_data)) / np.std(pixel_data)
+            
+            # Resize to standard dimensions if needed
+            if normalized.shape != (256, 256):
+                normalized = self._resize_to_standard(normalized)
+                
+            return normalized
+            
+        except Exception as e:
+            raise ValueError(f"Failed to normalize sequence: {str(e)}")
+    
+    def _load_pixel_data(self, series):
+        """Load and combine pixel data from series"""
+        instances = self.db.instances.find({
+            'series_instance_uid': series['series_instance_uid']
+        }).sort('instance_number', 1)
+        
+        # Load middle slice for 2D analysis
+        total_instances = instances.count()
+        middle_instance = instances[total_instances // 2]
+        
+        return self._read_pixel_data(middle_instance['file_path']) 

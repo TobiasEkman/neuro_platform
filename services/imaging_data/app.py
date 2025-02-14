@@ -13,6 +13,7 @@ import os
 import requests
 from werkzeug.utils import secure_filename
 import logging
+from preprocessors.mgmt_preprocessor import MGMTPreprocessor
 
 # Hårdkodad URL till patient service (port 5008)
 PATIENT_SERVICE_URL = 'http://localhost:5008/api'
@@ -40,6 +41,8 @@ try:
 except ServerSelectionTimeoutError as e:
     print(f"Failed to connect to MongoDB: {e}")
     db = None
+
+mgmt_preprocessor = MGMTPreprocessor(db)
 
 @app.before_request
 def check_db_connection():
@@ -316,6 +319,27 @@ def upload_dicom():
 
     except Exception as e:
         logger.error(f"Upload error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/preprocess/mgmt/<study_id>', methods=['GET'])
+def preprocess_mgmt(study_id):
+    """Preprocess MRI sequences for MGMT prediction"""
+    try:
+        # Validate required sequences exist
+        if not mgmt_preprocessor.validate_sequences(study_id):
+            return jsonify({
+                'error': 'Missing required sequences (T1, T1c, T2, FLAIR)'
+            }), 400
+            
+        # Prepare normalized sequences
+        sequences = mgmt_preprocessor.prepare_sequences(study_id)
+        
+        return jsonify({
+            'preprocessed_data': sequences.tolist(),
+            'study_id': study_id,
+            'sequence_types': ['T1', 'T1c', 'T2', 'FLAIR']
+        })
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.errorhandler(404)

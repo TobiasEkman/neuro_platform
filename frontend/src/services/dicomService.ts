@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { DicomStudy, DicomSeries, DicomImage, DicomImportResult } from '../types/dicom';
 import dcmjs from 'dcmjs';
+import { StreamProcessor } from '../utils/StreamProcessor';
 
 // Configure axios defaults
 axios.defaults.baseURL = '/api';
@@ -160,15 +161,31 @@ export const dicomService = {
     }
 
     try {
-      // Combine base folder with relative path
-      const fullPath = `${baseFolder}/${relativePath}`;
       const fileHandle = await window.showOpenFilePicker({
-        startIn: fullPath
+        startIn: `${baseFolder}/${relativePath}`
       });
       const file = await fileHandle[0].getFile();
+      
+      // Use streaming for large files
+      if (file.size > 50 * 1024 * 1024) { // 50MB threshold
+        return await StreamProcessor.processLargeDicom(file);
+      }
+      
+      // Use regular loading for smaller files
       return await file.arrayBuffer();
     } catch (error) {
       throw new Error(`Failed to load DICOM file: ${error}`);
+    }
+  },
+
+  // Add method to fetch patients with DICOM data
+  getPatientsWithDicom: async () => {
+    try {
+      const response = await axios.get('/api/patients/with-dicom');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch patients:', error);
+      throw error;
     }
   }
 }; 
