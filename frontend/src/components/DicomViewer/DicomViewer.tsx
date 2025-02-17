@@ -1,6 +1,30 @@
 import React, { useEffect, useRef, useState } from 'react';
-import * as cornerstone from '@cornerstonejs/core';
-import * as cornerstoneTools from '@cornerstonejs/tools';
+import {
+  RenderingEngine,
+  Viewport,
+  cache,
+  utilities as csUtils,
+  init as csInit,
+  StackViewport,
+  VolumeViewport,
+  volumeLoader,
+  imageLoader,
+  setVolumesForViewports,
+  addVolumesToViewports
+} from '@cornerstonejs/core';
+
+import {
+  ToolGroupManager,
+  WindowLevelTool,
+  PanTool,
+  ZoomTool,
+  StackScrollMouseWheelTool,
+  VolumeRotateMouseWheelTool,
+  utilities as csToolsUtils,
+  init as csToolsInit,
+  ToolGroup
+} from '@cornerstonejs/tools';
+
 import styled from 'styled-components';
 import dicomService from '../../services/dicomService';
 import { MPRViewer } from './components/MPRViewer';
@@ -128,6 +152,9 @@ const DicomViewer: React.FC = () => {
   const sagittalRef = useRef<HTMLDivElement>(null);
   const coronalRef = useRef<HTMLDivElement>(null);
 
+  const [renderingEngine, setRenderingEngine] = useState<RenderingEngine | null>(null);
+  const [toolGroup, setToolGroup] = useState<ToolGroup | null>(null);
+
   // Get current selections
   const currentPatient = patients.find(p => p._id === state.selectedPatientId);
   const currentStudy = currentPatient?.studies.find(s => s.studyInstanceUID === state.selectedStudyId);
@@ -195,8 +222,9 @@ const DicomViewer: React.FC = () => {
   const loadSeries = async (series: { filePath: string }) => {
     try {
       const imageArrayBuffer = await dicomService.loadLocalDicom(series.filePath);
+      
       if (state.layout === 'mpr') {
-        await loadMPRViews(series);
+        await loadMPRViews(imageArrayBuffer);
       } else {
         await loadSingleView(imageArrayBuffer);
       }
@@ -208,14 +236,49 @@ const DicomViewer: React.FC = () => {
     }
   };
 
-  // Initialize cornerstone tools
   useEffect(() => {
-    cornerstoneTools.init();
-    cornerstoneTools.addTool(cornerstoneTools.WwwcTool);
-    cornerstoneTools.addTool(cornerstoneTools.ZoomTool);
-    cornerstoneTools.addTool(cornerstoneTools.PanTool);
-    cornerstoneTools.addTool(cornerstoneTools.LengthTool);
-    cornerstoneTools.addTool(cornerstoneTools.AngleTool);
+    const initCornerstone = async () => {
+      try {
+        // Initialize Cornerstone Core and Tools
+        await csInit();
+        await csToolsInit();
+
+        // Initialize the rendering engine
+        const engine = new RenderingEngine('myRenderingEngine');
+        setRenderingEngine(engine);
+
+        // Create a tool group
+        const group = ToolGroupManager.createToolGroup('myToolGroup');
+        if (group) {
+          group.addTool(WindowLevelTool.toolName);
+          group.addTool(PanTool.toolName);
+          group.addTool(ZoomTool.toolName);
+          group.addTool(StackScrollMouseWheelTool.toolName);
+          group.addTool(VolumeRotateMouseWheelTool.toolName);
+
+          // Set active tools
+          group.setToolActive(WindowLevelTool.toolName);
+          group.setToolActive(StackScrollMouseWheelTool.toolName);
+          
+          setToolGroup(group);
+        }
+      } catch (error) {
+        console.error('Error initializing Cornerstone:', error);
+        setState(prev => ({
+          ...prev,
+          error: 'Failed to initialize viewer'
+        }));
+      }
+    };
+
+    initCornerstone();
+
+    // Cleanup
+    return () => {
+      if (renderingEngine) {
+        renderingEngine.destroy();
+      }
+    };
   }, []);
 
   // Initialize MPR views
@@ -225,15 +288,14 @@ const DicomViewer: React.FC = () => {
         if (!axialRef.current || !sagittalRef.current || !coronalRef.current) return;
 
         // Initialize each view
-        await cornerstone.enable(axialRef.current);
-        await cornerstone.enable(sagittalRef.current);
-        await cornerstone.enable(coronalRef.current);
+        await csInit();
+        await csToolsInit();
 
         // Load current series if any
         if (state.selectedSeriesId) {
           const series = findSelectedSeries(state.selectedSeriesId);
           if (series) {
-            await loadMPRViews(series);
+            await loadMPRViews(series.filePath);
           }
         }
       };
@@ -242,17 +304,56 @@ const DicomViewer: React.FC = () => {
     }
   }, [state.layout]);
 
-  const loadMPRViews = async (series: any) => {
+  const loadMPRViews = async (imageArrayBuffer: ArrayBuffer) => {
     try {
-      const imageArrayBuffer = await dicomService.loadLocalDicom(series.filePath);
-      const volumeData = await cornerstone.createVolume(imageArrayBuffer);
+      if (!renderingEngine) throw new Error('Rendering engine not initialized');
 
-      // Display MPR views
-      if (axialRef.current && sagittalRef.current && coronalRef.current) {
-        await cornerstone.displayVolume(axialRef.current, volumeData, { orientation: 'axial' });
-        await cornerstone.displayVolume(sagittalRef.current, volumeData, { orientation: 'sagittal' });
-        await cornerstone.displayVolume(coronalRef.current, volumeData, { orientation: 'coronal' });
-      }
+      // Create volume and load it
+      const volumeId = 'myVolume';
+      await volumeLoader.createAndCacheVolume(volumeId, { imageIds: [imageArrayBuffer] });
+      const volume = await cache.getVolume(volumeId);
+
+      if (!volume) throw new Error('Failed to create volume');
+
+      // Create viewports
+      const viewportIds = ['axial', 'sagittal', 'coronal'];
+      const viewportInputArray = [
+        {
+          viewportId: 'axial',
+          type: 'ORTHOGRAPHIC',
+          element: axialRef.current,
+          defaultOptions: {
+            orientation: { sliceNormal: [0, 0, 1], viewUp: [0, -1, 0] }
+          },
+        },
+        {
+          viewportId: 'sagittal',
+          type: 'ORTHOGRAPHIC',
+          element: sagittalRef.current,
+          defaultOptions: {
+            orientation: { sliceNormal: [1, 0, 0], viewUp: [0, 0, 1] }
+          },
+        },
+        {
+          viewportId: 'coronal',
+          type: 'ORTHOGRAPHIC',
+          element: coronalRef.current,
+          defaultOptions: {
+            orientation: { sliceNormal: [0, 1, 0], viewUp: [0, 0, 1] }
+          },
+        },
+      ];
+
+      renderingEngine.setViewports(viewportInputArray);
+
+      // Set the volume to display
+      await setVolumesForViewports(
+        renderingEngine,
+        [{ volumeId }],
+        viewportIds
+      );
+
+      renderingEngine.render();
     } catch (error) {
       console.error('Failed to load MPR views:', error);
       setState(prev => ({ ...prev, error: 'Failed to load MPR views' }));
@@ -261,19 +362,35 @@ const DicomViewer: React.FC = () => {
 
   const loadSingleView = async (imageArrayBuffer: ArrayBuffer) => {
     try {
-      const imageStack = await cornerstone.createImageStack(imageArrayBuffer);
+      if (!renderingEngine || !viewerRef.current) {
+        throw new Error('Rendering engine or viewer element not initialized');
+      }
+
+      // Create and cache the image
+      const imageId = 'myImage';
+      await imageLoader.createAndCacheLocalImage(imageId, imageArrayBuffer);
       
+      // Create the viewport
+      const viewport = renderingEngine.getViewport('stack') as StackViewport;
+      
+      if (!viewport) {
+        const viewportInput = {
+          viewportId: 'stack',
+          type: 'STACK',
+          element: viewerRef.current,
+        };
+        renderingEngine.enableElement(viewportInput);
+      }
+
+      // Set the image to display
+      await viewport.setStack([imageId]);
+      renderingEngine.render();
+
       setState(prev => ({
         ...prev,
-        totalImages: imageStack.length,
+        totalImages: 1,
         currentImageIndex: 0
       }));
-
-      if (viewerRef.current) {
-        await cornerstone.enable(viewerRef.current);
-        viewerRef.current.addEventListener('wheel', handleScroll);
-        await cornerstone.displayImage(viewerRef.current, imageStack[0]);
-      }
     } catch (error) {
       console.error('Failed to load single view:', error);
       setState(prev => ({ ...prev, error: 'Failed to load single view' }));

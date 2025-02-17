@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { CTFindings } from '../types/medical';
-import { dicomService } from '../services/dicomService';
+import dicomService from '../services/dicomService';
 import { DicomStudy } from '../types/dicom';
 
 interface UseDicomDataReturn {

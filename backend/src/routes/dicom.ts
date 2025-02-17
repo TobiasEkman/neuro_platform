@@ -4,8 +4,8 @@ import { upload } from '../middleware/upload';
 import { ParsedQs } from 'qs';
 import multer from 'multer';
 import { logger } from '../utils/logger';
-import { DicomModel } from '../models/dicomModel';
-import { Patient } from '../models/patientModel';
+import { DicomModel } from '../models/DicomModel';
+import PatientModel from '../models/Patient';
 
 const router = Router();
 
@@ -166,7 +166,7 @@ router.post('/metadata', async (req: Request, res: Response) => {
         const { patient, dicom } = req.body;
         
         // 1. Updates/creates record in Patient collection
-        const patientUpdate = await Patient.findOneAndUpdate(
+        const patientUpdate = await PatientModel.findOneAndUpdate(
             { id: patient.patient_id },
             {
                 $addToSet: {

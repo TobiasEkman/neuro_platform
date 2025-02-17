@@ -17,7 +17,7 @@ CORE COMPONENTS
   * Surgical approach planning interface
   * ICD coding assistance
 - DICOM Management:
-  * Advanced DICOM viewer with MPR support
+  * Advanced DICOM viewer with MPR support (using Cornerstone3D libraries)
   * Window/level presets and controls
   * Measurement tools (distance, angle, area)
   * DICOM import from folders and DICOMDIR
@@ -705,3 +705,11 @@ sequenceDiagram
 - Access control through Node.js backend
 - Validation of file paths to prevent directory traversal
 - Proper error handling for missing or invalid files
+
+## DICOM DATA FLOW
+
+In a production (or local) deployment using Docker, a local directory containing DICOM files is mounted into the imaging service container as a read-only volume. 
+This means the Flask code has direct on-disk access to the files without uploading them via the browser or storing them permanently in a remote location.
+When you request a DICOM study from the frontend (React), the Node.js backend proxies the request to the imaging service, which reads the DICOM file from the local mount and streams it back. 
+Only metadata (e.g., patient, study, series information) is stored in MongoDB. 
+Thus, large DICOM datasets remain on a local drive, reducing the need to transfer files over the network.

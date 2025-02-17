@@ -1,6 +1,5 @@
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 import { DicomStudy, DicomSeries, DicomImage, DicomImportResult } from '../types/dicom';
-import dcmjs from 'dcmjs';
 
 // Configure axios defaults
 axios.defaults.baseURL = '/api';
@@ -15,35 +14,48 @@ interface VolumeData {
 }
 
 class DicomService {
-  private baseUrl = '/api/dicom';
+  private baseUrl = '/dicom';
 
-  async parseLocalFolder(folderPath: string) {
-    const response = await axios.post(`${this.baseUrl}/parse/folder`, {
-      folderPath
-    });
-    if (!response.ok) throw new Error('Failed to parse DICOM folder');
-    return response.data;
+  async parseLocalFolder(folderPath: string): Promise<DicomImportResult> {
+    try {
+      const response = await axios.post(`${this.baseUrl}/parse/folder`, {
+        folderPath
+      });
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error, 'Failed to parse DICOM folder');
+    }
   }
 
-  async parseDicomdir(dicomdirPath: string) {
-    const response = await axios.post(`${this.baseUrl}/parse/dicomdir`, {
-      dicomdirPath
-    });
-    if (!response.ok) throw new Error('Failed to parse DICOMDIR');
-    return response.data;
+  async parseDicomdir(dicomdirPath: string): Promise<DicomImportResult> {
+    try {
+      const response = await axios.post(`${this.baseUrl}/parse/dicomdir`, {
+        dicomdirPath
+      });
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error, 'Failed to parse DICOMDIR');
+    }
   }
 
-  async getImage(instanceUid: string) {
-    const response = await axios.get(`${this.baseUrl}/image/${instanceUid}`, {
-      responseType: 'arraybuffer'
-    });
-    return response.data;
+  async getImage(instanceUid: string): Promise<ArrayBuffer> {
+    try {
+      const response = await axios.get(`${this.baseUrl}/image/${instanceUid}`, {
+        responseType: 'arraybuffer'
+      });
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error, 'Failed to get image');
+    }
   }
 
-  async analyzeDataset() {
-    const response = await axios.get(`${this.baseUrl}/dataset/analyze`);
-    if (!response.ok) throw new Error('Dataset analysis failed');
-    return response.data;
+  async analyzeDataset(): Promise<any> {
+    try {
+      const response = await axios.get(`${this.baseUrl}/dataset/analyze`);
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error, 'Dataset analysis failed');
+    }
   }
 
   async searchStudies(query: string): Promise<DicomStudy[]> {
@@ -53,26 +65,37 @@ class DicomService {
       });
       return response.data;
     } catch (error) {
-      console.error('Failed to search studies:', error);
-      throw error;
+      throw this.handleError(error, 'Failed to search studies');
     }
   }
 
   async getStats() {
-    const response = await axios.get('/dicom/stats');
-    return response.data;
+    try {
+      const response = await axios.get(`${this.baseUrl}/stats`);
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error, 'Failed to get stats');
+    }
   }
 
   async getSeriesMetadata(seriesId: string) {
-    const response = await axios.get(`/dicom/series/${seriesId}/metadata`);
-    return response.data;
+    try {
+      const response = await axios.get(`${this.baseUrl}/series/${seriesId}/metadata`);
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error, 'Failed to get series metadata');
+    }
   }
 
-  async getVolumeData(seriesId: string) {
-    const response = await axios.get(`/dicom/volume/${seriesId}`, {
-      responseType: 'arraybuffer'
-    });
-    return response.data;
+  async getVolumeData(seriesId: string): Promise<ArrayBuffer> {
+    try {
+      const response = await axios.get(`${this.baseUrl}/volume/${seriesId}`, {
+        responseType: 'arraybuffer'
+      });
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error, 'Failed to get volume data');
+    }
   }
 
   async testConnection() {
@@ -135,25 +158,37 @@ class DicomService {
     }
   }
 
-  async loadLocalDicom(relativePath: string) {
+  async loadLocalDicom(relativePath: string): Promise<ArrayBuffer> {
     try {
       const response = await axios.get(`${this.baseUrl}/file`, {
         params: { path: relativePath },
-        responseType: 'arraybuffer'  // Important for binary data
+        responseType: 'arraybuffer'
       });
       return response.data;
     } catch (error) {
-      throw new Error(`Failed to load DICOM file: ${error}`);
+      throw this.handleError(error, 'Failed to load DICOM file');
     }
   }
 
-  async getPatientsWithDicom() {
+  async getPatientsWithDicom(): Promise<Array<{
+    _id: string;
+    pid: string;
+    name: string;
+    studies: Array<{
+      studyInstanceUID: string;
+      studyDate: string;
+      series: Array<{
+        seriesInstanceUID: string;
+        modality: string;
+        filePath: string;
+      }>;
+    }>;
+  }>> {
     try {
-      const response = await axios.get('/api/patients/with-dicom');
+      const response = await axios.get('/patients/with-dicom');
       return response.data;
     } catch (error) {
-      console.error('Failed to fetch patients:', error);
-      throw error;
+      throw this.handleError(error, 'Failed to fetch patients');
     }
   }
 
@@ -164,11 +199,15 @@ class DicomService {
     return response.data;
   }
 
-  async parseLocalDirectory(directoryPath: string) {
-    const response = await axios.post(`${this.baseUrl}/parse/folder`, {
-      folderPath: directoryPath
-    });
-    return response.data;
+  async parseLocalDirectory(directoryPath: string): Promise<DicomImportResult> {
+    try {
+      const response = await axios.post(`${this.baseUrl}/parse/folder`, {
+        folderPath: directoryPath
+      });
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error, 'Failed to parse directory');
+    }
   }
 
   async getStudyDetails(studyInstanceUid: string): Promise<DicomStudy> {
@@ -176,9 +215,20 @@ class DicomService {
       const response = await axios.get(`${this.baseUrl}/studies/${studyInstanceUid}`);
       return response.data;
     } catch (error) {
-      console.error('Failed to get study details:', error);
-      throw error;
+      throw this.handleError(error, 'Failed to get study details');
     }
+  }
+
+  private handleError(error: unknown, defaultMessage: string): Error {
+    if (axios.isAxiosError(error)) {
+      const axiosError = error as AxiosError;
+      return new Error(
+        axiosError.response?.data?.message || 
+        axiosError.message || 
+        defaultMessage
+      );
+    }
+    return error instanceof Error ? error : new Error(defaultMessage);
   }
 }
 
