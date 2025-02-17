@@ -46,27 +46,40 @@ class FolderParser(BaseParser):
     def _process_dataset(self, dataset, file_path):
         """Process a single DICOM dataset"""
         try:
-            # Create or get patient
-            patient, _ = self._get_or_create_patient(dataset)
-            
-            # Create or get study
-            study, _ = self._get_or_create_study(dataset, patient['patient_id'])
-            
-            # Create or get series
-            series, _ = self._get_or_create_series(dataset, study['study_instance_uid'])
-            
-            # Create or get instance
-            instance, _ = self._get_or_create_instance(
-                dataset, 
-                series['series_instance_uid'],
-                file_path
-            )
-            
+            # Get basic patient info
+            patient_data = {
+                'patient_id': self._get_tag_value(dataset, self.config.get_tag('patient', 'id')),
+                'images': [{
+                    'type': dataset.Modality,
+                    'date': self._get_tag_value(dataset, self.config.get_tag('study', 'date')),
+                    'dicomPath': file_path,
+                    'sequences': [{
+                        'name': self._get_tag_value(dataset, self.config.get_tag('series', 'description')),
+                        'parameters': {
+                            'seriesNumber': self._get_tag_value(dataset, self.config.get_tag('series', 'number'))
+                        }
+                    }]
+                }]
+            }
+
+            # Get detailed DICOM metadata
+            dicom_metadata = {
+                'study_instance_uid': self._get_tag_value(dataset, self.config.get_tag('study', 'uid')),
+                'series_instance_uid': self._get_tag_value(dataset, self.config.get_tag('series', 'uid')),
+                'modality': dataset.Modality,
+                'study_date': self._get_tag_value(dataset, self.config.get_tag('study', 'date')),
+                'series_description': self._get_tag_value(dataset, self.config.get_tag('series', 'description')),
+                'filePath': file_path,
+                'metadata': {
+                    # Store additional DICOM tags here
+                    'protocol': self._get_tag_value(dataset, self.config.get_tag('series', 'protocol_name')),
+                    'bodyPart': self._get_tag_value(dataset, self.config.get_tag('series', 'body_part'))
+                }
+            }
+
             return {
-                'patient_id': patient['patient_id'],
-                'study_instance_uid': study['study_instance_uid'],
-                'series_instance_uid': series['series_instance_uid'],
-                'sop_instance_uid': instance['sop_instance_uid']
+                'patient': patient_data,
+                'dicom': dicom_metadata
             }
         except Exception as e:
             print(f"Error processing dataset: {str(e)}")

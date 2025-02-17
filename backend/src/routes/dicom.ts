@@ -5,6 +5,7 @@ import { ParsedQs } from 'qs';
 import multer from 'multer';
 import { logger } from '../utils/logger';
 import { DicomModel } from '../models/dicomModel';
+import { Patient } from '../models/patientModel';
 
 const router = Router();
 
@@ -162,21 +163,35 @@ router.get('/series/:seriesId/metadata', async (req, res) => {
 
 router.post('/metadata', async (req: Request, res: Response) => {
     try {
-        const { metadata, patientId } = req.body;
+        const { patient, dicom } = req.body;
         
-        // Store only metadata in MongoDB
-        const result = await DicomModel.create(
-            metadata.map((item: any) => ({
-                ...item,
-                patientId,
-                // Store relative path instead of full path
-                filePath: item.localPath
-            }))
+        // 1. Updates/creates record in Patient collection
+        const patientUpdate = await Patient.findOneAndUpdate(
+            { id: patient.patient_id },
+            {
+                $addToSet: {
+                    images: patient.images
+                }
+            },
+            { upsert: true, new: true }
         );
+
+        // 2. Creates record in DicomModel collection
+        const dicomMetadata = await DicomModel.create({
+            patientId: patientUpdate._id,
+            study_instance_uid: dicom.study_instance_uid,
+            series_instance_uid: dicom.series_instance_uid,
+            modality: dicom.modality,
+            study_date: dicom.study_date,
+            series_description: dicom.series_description,
+            filePath: dicom.filePath,
+            metadata: dicom.metadata
+        });
 
         res.json({
             message: 'Metadata stored successfully',
-            studies: result
+            patient: patientUpdate,
+            dicom: dicomMetadata
         });
     } catch (err) {
         handleServiceError(err, res);
