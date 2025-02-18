@@ -9,7 +9,9 @@ import PatientModel from '../models/Patient';
 
 const router = Router();
 
-const IMAGING_SERVICE_URL = 'http://imaging_data:5003';
+const IMAGING_SERVICE_URL = process.env.IMAGING_SERVICE_URL || 'http://localhost:5003';
+
+logger.info(`Configured imaging service URL: ${IMAGING_SERVICE_URL}`);
 
 // Helper function to handle service errors with proper typing
 const handleServiceError = (err: unknown, res: Response) => {
@@ -40,31 +42,66 @@ router.get('/series/:seriesId', async (req, res) => {
     }
 });
 
-router.get('/image/:instanceUid', async (req, res) => {
+router.get('/image', async (req, res) => {
     try {
-        // Get image directly from the mounted volume via imaging service
+        const { path } = req.query;
+        if (!path) {
+            throw new Error('No path provided');
+        }
+
+        // Just normalize slashes and decode
+        const normalizedPath = decodeURIComponent(path as string).replace(/\\/g, '/');
+        
+        console.log('[Backend] Forwarding image request for path:', normalizedPath);
+
         const response = await axios.get(
-            `${IMAGING_SERVICE_URL}/api/dicom/image/${req.params.instanceUid}`,
-            { responseType: 'stream' }
+            `${IMAGING_SERVICE_URL}/api/dicom/image`,
+            {
+                params: { path: normalizedPath },
+                responseType: 'stream'
+            }
         );
+
+        res.setHeader('Content-Type', 'application/octet-stream');
         response.data.pipe(res);
     } catch (err) {
+        console.error('Error serving image:', err);
         handleServiceError(err, res);
     }
 });
 
-// Parse local DICOM folder
-router.post('/parse/folder', async (req, res) => {
+// Route to forward folder parsing to the imaging service
+router.post('/parse/folder', async (req: Request, res: Response) => {
     try {
         const { folderPath } = req.body;
-        // Call imaging service to scan the directory
-        const response = await axios.post(
-            `${IMAGING_SERVICE_URL}/api/dicom/parse/folder`,
-            { folderPath }
-        );
-        res.json(response.data);
-    } catch (err) {
-        handleServiceError(err, res);
+        
+        // Set headers for streaming response
+        res.setHeader('Content-Type', 'application/x-ndjson');
+        res.setHeader('Transfer-Encoding', 'chunked');
+        
+        // Make request to imaging service with streaming response
+        const response = await axios({
+            method: 'post',
+            url: `${IMAGING_SERVICE_URL}/api/dicom/parse/folder`,
+            data: { folderPath },
+            responseType: 'stream'
+        });
+
+        // Pipe the imaging service response directly to our response
+        response.data.pipe(res);
+        
+        // Handle errors in the stream
+        response.data.on('error', (error: Error) => {
+            console.error('Stream error:', error);
+            // Only send error if headers haven't been sent
+            if (!res.headersSent) {
+                res.status(500).json({ error: 'Stream error occurred' });
+            }
+        });
+
+    } catch (error) {
+        console.error('Error connecting to imaging service:', error);
+        res.status(500).json({ error: 'Failed to connect to imaging service' });
     }
 });
 
@@ -108,13 +145,15 @@ router.get('/list', async (req, res) => {
 // Search studies
 router.get('/search', async (req, res) => {
     try {
+        console.log('Search query:', req.query.q);
         const response = await axios.get(
             `${IMAGING_SERVICE_URL}/api/dicom/search?q=${req.query.q}`
         );
+        console.log('Imaging service response:', response.data);
         res.json(response.data);
-    } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'An unknown error occurred';
-        res.status(500).json({ message });
+    } catch (err) {
+        console.error('Search error:', err);
+        handleServiceError(err, res);
     }
 });
 
@@ -165,9 +204,9 @@ router.post('/metadata', async (req: Request, res: Response) => {
     try {
         const { patient, dicom } = req.body;
         
-        // 1. Updates/creates record in Patient collection
+        // Update to use patient_id
         const patientUpdate = await PatientModel.findOneAndUpdate(
-            { id: patient.patient_id },
+            { patient_id: patient.patient_id },
             {
                 $addToSet: {
                     images: patient.images
@@ -194,6 +233,25 @@ router.post('/metadata', async (req: Request, res: Response) => {
             dicom: dicomMetadata
         });
     } catch (err) {
+        handleServiceError(err, res);
+    }
+});
+
+// Add a health check endpoint
+router.get('/health', async (req, res) => {
+    try {
+        logger.info('Health check request received');
+        const response = await axios.get(`${IMAGING_SERVICE_URL}/health`);
+        logger.info('Health check successful', {
+            status: response.status,
+            imagingServiceUrl: IMAGING_SERVICE_URL
+        });
+        res.json({ status: 'ok' });
+    } catch (err) {
+        logger.error(new Error('Health check failed'), {
+            error: err instanceof Error ? err.message : 'Unknown error',
+            imagingServiceUrl: IMAGING_SERVICE_URL
+        });
         handleServiceError(err, res);
     }
 });

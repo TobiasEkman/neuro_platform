@@ -1,8 +1,7 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, Response
 from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError
 from parsers.folder_parser import FolderParser
-from parsers.dicomdir_parser import DicomdirParser
 from utils.mongo_utils import init_mongo_indexes
 from utils.search import fuzzy_search
 from utils.dataset_analyzer import DatasetAnalyzer
@@ -14,21 +13,30 @@ import requests
 from werkzeug.utils import secure_filename
 import logging
 from preprocessors.mgmt_preprocessor import MGMTPreprocessor
+import re
+import json
+from bson import json_util
+from bson.objectid import ObjectId
+from pathlib import Path
 
-# Hårdkodad URL till patient service (port 5008)
-PATIENT_SERVICE_URL = 'http://localhost:5008/api'
-
-# Konfigurera logging
+# Set logging level to DEBUG
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
+# At the top of your app.py, after the imports
+print(f"Environment DICOM_BASE_DIR: {os.environ.get('DICOM_BASE_DIR')}")
+DICOM_BASE_DIR = os.environ.get('DICOM_BASE_DIR', 'C:/Users/Tobias/development/test patients')
+print(f"Using DICOM_BASE_DIR: {DICOM_BASE_DIR}")
+
 app = Flask(__name__)
-# Lägg till standard UPLOAD_DIR (använd gärna volymen /data/dicom i docker-compose)
-app.config['UPLOAD_DIR'] = os.environ.get('UPLOAD_DIR', '/data/dicom')
-CORS(app, resources={
-    r"/api/*": {"origins": "*"},
-    r"/search": {"origins": "*"}
-})  # Enable CORS for all routes
+app.config['UPLOAD_DIR'] = os.environ.get('UPLOAD_DIR', DICOM_BASE_DIR)
+CORS(app)
+
+# Disable reloader when processing files
+app.config['USE_RELOADER'] = False
+
+# Add configuration
+app.config['PATIENT_SERVICE_URL'] = os.getenv('PATIENT_SERVICE_URL', 'http://localhost:5008/api')
 
 # Initialize MongoDB connection with error handling
 try:
@@ -43,6 +51,11 @@ except ServerSelectionTimeoutError as e:
     db = None
 
 mgmt_preprocessor = MGMTPreprocessor(db)
+
+# Print all registered routes at startup
+print("Registered Routes:")
+for rule in app.url_map.iter_rules():
+    print(f"{rule.endpoint}: {rule.rule}")
 
 @app.before_request
 def check_db_connection():
@@ -74,37 +87,40 @@ init_mongo_indexes(db)
 
 @app.route('/api/dicom/parse/folder', methods=['POST'])
 def parse_folder():
-    try:
-        folder_path = request.json.get('folderPath')
-        if not folder_path:
-            return jsonify({'error': 'folderPath is required'}), 400
+    data = request.get_json()
+    folder_path = data.get('folderPath')
+    if not folder_path:
+        return jsonify({'error': 'Missing folderPath'}), 400
+    
+    def generate():
+        try:
+            full_path = os.path.join(DICOM_BASE_DIR, folder_path)
+            full_path = os.path.normpath(full_path)
+            
+            if not os.path.exists(full_path):
+                yield json.dumps({
+                    'error': f'Folder not found: {full_path}'
+                }) + '\n'
+                return
 
-        parser = FolderParser(db)
-        result = parser.parse(folder_path)
-        
-        return jsonify({
-            'message': 'DICOM folder parsed successfully',
-            'studies': result
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+            parser = FolderParser(db)
+            for progress in parser.parse(full_path):
+                # Ensure proper line formatting
+                yield json.dumps(progress, ensure_ascii=False) + '\n'
 
-@app.route('/api/dicom/parse/dicomdir', methods=['POST'])
-def parse_dicomdir():
-    try:
-        dicomdir_path = request.json.get('dicomdirPath')
-        if not dicomdir_path:
-            return jsonify({'error': 'dicomdirPath is required'}), 400
+        except Exception as e:
+            logger.error(f'Error parsing DICOM data: {str(e)}', exc_info=True)
+            yield json.dumps({'error': str(e)}) + '\n'
 
-        parser = DicomdirParser(db)
-        result = parser.parse(dicomdir_path)
-        
-        return jsonify({
-            'message': 'DICOMDIR parsed successfully',
-            'studies': result
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    return Response(
+        generate(),
+        mimetype='application/x-ndjson',
+        headers={
+            'X-Accel-Buffering': 'no',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive'
+        }
+    )
 
 @app.route('/search', methods=['GET'])
 @app.route('/api/dicom/search', methods=['GET'])
@@ -113,27 +129,28 @@ def search_studies():
         query = request.args.get('q', '')
         logger.info(f'Searching with query: {query}')
         
-        # Om ingen query, returnera alla studier
-        if not query:
-            logger.debug('No query provided, returning all studies')
-            studies = list(db.studies.find({}))
-            logger.info(f'Found {len(studies)} studies')
-            return jsonify(studies)
-            
-        # Parse query format "patient:default" etc
-        query_parts = dict(part.split(':') for part in query.split() if ':' in part)
-        logger.debug(f'Parsed query parts: {query_parts}')
-        
         # Build MongoDB query
         mongo_query = {}
-        if 'patient' in query_parts and query_parts['patient'] != 'default':
-            mongo_query['patient_id'] = query_parts['patient']
-        logger.debug(f'MongoDB query: {mongo_query}')
+        
+        # Parse query format "key:value"
+        if query:
+            query_parts = dict(part.split(':') for part in query.split() if ':' in part)
+            
+            if 'patient' in query_parts:
+                mongo_query['patient_id'] = query_parts['patient']
+            if 'study' in query_parts:
+                mongo_query['study_instance_uid'] = query_parts['study']
         
         # Execute search
         studies = list(db.studies.find(mongo_query))
-        logger.info(f'Found {len(studies)} matching studies')
-        return jsonify(studies)
+        
+        # Format response
+        formatted_studies = []
+        for study in studies:
+            study['_id'] = str(study['_id'])
+            formatted_studies.append(study)
+            
+        return json_util.dumps(formatted_studies), 200, {'Content-Type': 'application/json'}
     except Exception as e:
         logger.error(f"Search error: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
@@ -147,32 +164,41 @@ def analyze_dataset():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/dicom/image/<instance_uid>', methods=['GET'])
-def get_image(instance_uid):
+@app.route('/api/dicom/image', methods=['GET'])
+def get_dicom_image():
     try:
-        # Get file path from MongoDB
-        instance = db.instances.find_one({'sop_instance_uid': instance_uid})
-        if not instance:
-            return jsonify({'error': 'Instance not found'}), 404
+        path = request.args.get('path')
+        app.logger.info(f"Incoming path: {path}")
+        
+        if not path:
+            return jsonify({'error': 'No path provided'}), 400
 
-        # Read DICOM file
-        ds = pydicom.dcmread(instance['file_path'])
+        # Handle spaces in path
+        normalized_path = os.path.normpath(
+            path.replace('\\', '/')
+            .replace('%20', ' ')  # Handle URL-encoded spaces
+        ).lstrip('/')
         
-        # Set CORS headers
-        headers = {
-            'Access-Control-Allow-Origin': '*',
-            'Content-Type': 'application/dicom'
-        }
+        app.logger.info(f"Normalized path: {normalized_path}")
         
-        # Return the file with proper headers
-        return send_file(
-            instance['file_path'],
-            mimetype='application/dicom',
-            as_attachment=True,
-            download_name=f"{instance_uid}.dcm",
-            headers=headers
-        )
+        # Try relative to DICOM_BASE_DIR
+        full_path = os.path.join(DICOM_BASE_DIR, normalized_path)
+        app.logger.info(f"Full path: {full_path}")
+        app.logger.info(f"Path exists? {os.path.exists(full_path)}")
+        
+        if not os.path.isfile(full_path):
+            app.logger.error(f"File not found at: {full_path}")
+            return jsonify({
+                'error': 'File not found',
+                'attempted_path': full_path,
+                'base_dir': DICOM_BASE_DIR,
+                'normalized_path': normalized_path
+            }), 404
+
+        app.logger.info(f"Serving file from: {full_path}")
+        return send_file(full_path, mimetype='application/dicom')
     except Exception as e:
+        app.logger.error(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/dicom/test', methods=['GET'])
@@ -226,6 +252,13 @@ def get_stats():
 def list_data():
     try:
         patients = list(db.patients.find({}, {'_id': 0}))
+        
+        # Log patient ID formats
+        for patient in patients:
+            logger.info('Imaging service patient ID check', {
+                'patient_id': patient.get('patient_id'),
+                'has_valid_pid_format': bool(re.match(r'^PID_\d{4}$', str(patient.get('patient_id'))))
+            })
         
         # Get studies for each patient
         for patient in patients:
@@ -305,7 +338,7 @@ def upload_dicom():
 
         # Update patient record in patient management service
         response = requests.post(
-            f'{PATIENT_SERVICE_URL}/patients/pid/{pid}/dicom',
+            f'{app.config["PATIENT_SERVICE_URL"]}/patients/pid/{pid}/dicom',
             json=study_data
         )
         
@@ -342,6 +375,14 @@ def preprocess_mgmt(study_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/health')
+def health_check():
+    return jsonify({
+        'status': 'healthy',
+        'version': '1.0.0',
+        'mongodb_connected': True
+    })
+
 @app.errorhandler(404)
 def not_found_error(error):
     logger.error(f"404 Error: {request.url}")
@@ -359,9 +400,71 @@ def internal_error(error):
         'message': str(error)
     }), 500
 
+@app.route('/api/config/dicom-path', methods=['GET', 'POST'])
+def configure_dicom_path():
+    if request.method == 'POST':
+        data = request.json
+        new_path = data.get('path')
+        
+        if not new_path:
+            return jsonify({'error': 'No path provided'}), 400
+            
+        # Validate the path exists
+        if not os.path.exists(new_path):
+            return jsonify({'error': 'Path does not exist'}), 400
+            
+        # Store in environment variable
+        os.environ['DICOM_BASE_DIR'] = new_path
+        app.config['DICOM_BASE_DIR'] = new_path
+        
+        return jsonify({
+            'message': 'DICOM path updated',
+            'path': new_path
+        })
+    
+    # GET request returns current path
+    return jsonify({
+        'path': os.environ.get('DICOM_BASE_DIR', 'C:/Users/Tobias/development/test patients')
+    })
+
+@app.route('/api/dicom/debug', methods=['GET'])
+def debug_dicom():
+    """Debug endpoint to check DICOM configuration"""
+    try:
+        test_path = request.args.get('path')
+        return jsonify({
+            'DICOM_BASE_DIR': DICOM_BASE_DIR,
+            'DICOM_BASE_DIR_from_env': os.environ.get('DICOM_BASE_DIR'),
+            'UPLOAD_DIR': app.config['UPLOAD_DIR'],
+            'base_dir_exists': os.path.exists(DICOM_BASE_DIR),
+            'base_dir_is_dir': os.path.isdir(DICOM_BASE_DIR),
+            'base_dir_contents': os.listdir(DICOM_BASE_DIR) if os.path.exists(DICOM_BASE_DIR) else [],
+            'env_vars': dict(os.environ),  # Add this to see all environment variables
+            'test_path': {
+                'raw': test_path,
+                'normalized': os.path.normpath(test_path) if test_path else None,
+                'full_path': os.path.join(DICOM_BASE_DIR, test_path) if test_path else None,
+                'exists': os.path.exists(os.path.join(DICOM_BASE_DIR, test_path)) if test_path else None
+            } if test_path else None
+        })
+    except Exception as e:
+        app.logger.error(f"Debug endpoint error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/test', methods=['GET'])
+def test():
+    return jsonify({'status': 'ok', 'message': 'Flask server is running'})
+
 if __name__ == '__main__':
-    logger.info("Starting Imaging Service...")
-    logger.info("Available routes:")
+    print("\nStarting Flask server...")
+    print("\nRegistered Routes:")
     for rule in app.url_map.iter_rules():
-        logger.info(f"{rule.endpoint}: {rule.rule}")
-    app.run(host='0.0.0.0', port=5003, debug=True) 
+        print(f"  {rule.methods} {rule.rule}")
+    
+    # Run with debug mode and no reloader
+    app.run(
+        host='0.0.0.0', 
+        port=5003, 
+        debug=True,
+        use_reloader=False  # Disable reloader to prevent double registration
+    ) 

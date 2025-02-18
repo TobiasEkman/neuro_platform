@@ -1,3 +1,5 @@
+import { Types } from '@cornerstonejs/core';
+
 declare module '@cornerstonejs/core' {
   export class RenderingEngine {
     constructor(id: string);
@@ -9,7 +11,8 @@ declare module '@cornerstonejs/core' {
   }
 
   export class StackViewport {
-    setStack(imageIds: string[]): Promise<void>;
+    setStack: (imageIds: string[]) => Promise<void>;
+    setCamera: (options: { reset?: boolean }) => void;
   }
 
   export class VolumeViewport {}

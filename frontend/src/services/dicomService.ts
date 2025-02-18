@@ -1,6 +1,7 @@
 import axios, { AxiosError } from 'axios';
 import { DicomStudy, DicomSeries, DicomImage, DicomImportResult, VolumeData } from '../types/dicom';
 import { logger } from '../utils/logger';
+import { convertStudy } from '../types/dicom';
 
 // Configure axios defaults
 axios.defaults.baseURL = '/api';
@@ -61,14 +62,32 @@ class DicomService {
   }
 
   // Get image data for a specific instance
-  async getImageData(instanceUid: string): Promise<ArrayBuffer> {
+  async getImageData(filePath: string): Promise<ArrayBuffer> {
     try {
+      // Use the path as-is, let the backend handle both absolute and relative paths
+      const encodedPath = encodeURIComponent(filePath.replace(/\\/g, '/'));
+      
+      console.log('[DicomService] Requesting image with path:', filePath);
+
       const response = await axios.get(
-        `${this.baseUrl}/image/${instanceUid}`,
-        { responseType: 'arraybuffer' }
+        `${this.baseUrl}/image`,
+        {
+          params: { path: encodedPath },
+          responseType: 'arraybuffer'
+        }
       );
+
+      // Add debug logging
+      console.log('[DicomService] Got response:', {
+        status: response.status,
+        headers: response.headers,
+        dataType: response.data.constructor.name,
+        dataLength: response.data.byteLength
+      });
+
       return response.data;
     } catch (error) {
+      console.error('Error getting image data:', error);
       throw this.handleError(error, 'Failed to get image data');
     }
   }
@@ -80,35 +99,12 @@ class DicomService {
         params: { q: query }
       });
       
-      // Log raw response
-      console.log('Raw MongoDB data:', response.data);
+      console.log('Raw study data:', response.data);
       
-      // Ensure the data is properly formatted
-      const studies: DicomStudy[] = response.data.map((study: any) => {
-        const formattedStudy = {
-          ...study,
-          // Handle YYYYMMDD format
-          study_date: study.study_date ? (
-            study.study_date.length === 8 ? 
-              `${study.study_date.substring(0, 4)}-${study.study_date.substring(4, 6)}-${study.study_date.substring(6, 8)}` 
-              : study.study_date
-          ) : null,
-          // Ensure arrays exist
-          modalities: study.modalities || [],
-          series: study.series || [],
-          // Ensure numbers are numbers
-          num_series: study.num_series || study.series?.length || 0,
-          num_instances: study.num_instances || 0,
-          // Keep original description
-          description: study.description
-        };
-        
-        // Log formatted study
-        console.log('Formatted study:', formattedStudy);
-        
-        return formattedStudy;
-      });
+      // Convert the data to match our types
+      const studies: DicomStudy[] = response.data.map(convertStudy);
       
+      console.log('Formatted studies:', studies);
       return studies;
     } catch (error) {
       throw this.handleError(error, 'Failed to search studies');
@@ -183,6 +179,23 @@ class DicomService {
       return response.data;
     } catch (error) {
       throw this.handleError(error, 'Connection test failed');
+    }
+  }
+
+  async configureDicomPath(path: string): Promise<void> {
+    try {
+      await axios.post(`${this.baseUrl}/config/dicom-path`, { path });
+    } catch (error) {
+      throw this.handleError(error, 'Failed to configure DICOM path');
+    }
+  }
+
+  async getDicomPath(): Promise<string> {
+    try {
+      const response = await axios.get(`${this.baseUrl}/config/dicom-path`);
+      return response.data.path;
+    } catch (error) {
+      throw this.handleError(error, 'Failed to get DICOM path');
     }
   }
 

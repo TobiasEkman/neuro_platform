@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { useParams, useLocation } from 'react-router-dom';
 import {
   RenderingEngine,
   cache,
@@ -27,6 +27,8 @@ import { WindowLevelControls } from './components/WindowLevelControls';
 import { DicomStudy, DicomSeries } from '../../types/medical';
 import { WindowLevel } from '../../types/medical';
 import { ViewerContainer, ErrorMessage } from './styles';
+import { WelcomeView } from './components/WelcomeView';
+import { convertStudy } from '../../types/dicom';
 
 // Enhanced styled components
 const ViewerGrid = styled.div<{ layout: 'single' | 'mpr' }>`
@@ -45,6 +47,9 @@ const ViewerPanel = styled.div`
   position: relative;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 500px;
 `;
 
 const ViewerHeader = styled.div`
@@ -92,6 +97,20 @@ const Select = styled.select`
   border: 1px solid ${props => props.theme.colors.border};
 `;
 
+const LoadingOverlay = styled.div`
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  z-index: 2;
+`;
+
 interface ViewerState {
   windowLevel: WindowLevel;
   currentSlice: number;
@@ -127,11 +146,35 @@ interface Patient {
 }
 
 const findSelectedSeries = (study: DicomStudy | null, seriesId: string) => {
-  return study?.series.find(s => s.series_instance_uid === seriesId);
+  const series = study?.series.find(s => 
+    s.series_instance_uid === seriesId || 
+    s.series_uid === seriesId
+  );
+
+  if (series) {
+    // Get relative path from series or first instance
+    series.filePath = series.filePath || series.instances?.[0]?.file_path;
+    
+    if (series.filePath) {
+      // Ensure forward slashes
+      series.filePath = series.filePath.replace(/\\/g, '/');
+      // Remove any Windows drive letter prefix if present
+      series.filePath = series.filePath.replace(/^[A-Za-z]:\\/, '');
+      // Remove any leading slashes
+      series.filePath = series.filePath.replace(/^\/+/, '');
+      
+      console.log('[DicomViewer] Using relative path:', series.filePath);
+    }
+  }
+
+  return series;
 };
 
 export const DicomViewer: React.FC<DicomViewerProps> = () => {
-  const { studyId } = useParams<{ studyId: string }>();
+  const location = useLocation();
+  const studyId = location.state?.studyId;
+  console.log('DicomViewer: location state studyId =', studyId);
+  
   const [state, setState] = useState<ViewerState>({
     windowLevel: {
       windowCenter: 40,
@@ -149,49 +192,100 @@ export const DicomViewer: React.FC<DicomViewerProps> = () => {
   });
 
   const [patients, setPatients] = useState<Patient[]>([]);
-
   const viewerRef = useRef<HTMLDivElement>(null);
   const axialRef = useRef<HTMLDivElement>(null);
   const sagittalRef = useRef<HTMLDivElement>(null);
   const coronalRef = useRef<HTMLDivElement>(null);
-
   const [renderingEngine, setRenderingEngine] = useState<RenderingEngine | null>(null);
-
   const [study, setStudy] = useState<DicomStudy | null>(null);
 
+  // Add loading state
+  const [isLoading, setIsLoading] = useState(false);
+
+  const loadSeries = useCallback(async (filePath: string) => {
+    try {
+      console.log('[DicomViewer] Preparing to request image from Node using path:', filePath);
+      
+      if (!renderingEngine) {
+        console.error('Rendering engine not initialized');
+        return;
+      }
+
+      console.log('[DicomViewer] getImageData() called with path:', filePath);
+      const imageArrayBuffer = await dicomService.getImageData(filePath);
+      console.log('[DicomViewer] Got image data, size:', imageArrayBuffer.byteLength);
+
+      // Add this debug check
+      if (!(imageArrayBuffer instanceof ArrayBuffer)) {
+        console.error('Received data is not an ArrayBuffer:', imageArrayBuffer);
+        throw new Error('Invalid image data format');
+      }
+
+      if (state.layout === 'mpr') {
+        console.log('Loading MPR views');
+        await loadMPRViews(filePath);
+      } else {
+        console.log('Loading single view');
+        await loadSingleView(filePath);
+      }
+    } catch (error) {
+      console.error('Failed to load series:', error);
+      setState(prev => ({
+        ...prev,
+        error: error instanceof Error ? error.message : 'Failed to load series'
+      }));
+    }
+  }, [renderingEngine, state.layout]);
+
   useEffect(() => {
+    let mounted = true;
+
     const loadStudy = async () => {
+      if (!studyId) return;
+
       try {
         console.log('Loading study with ID:', studyId);
-        if (!studyId) {
-          return; // Don't throw error, just return
-        }
-
         const studies = await dicomService.searchStudies(`study:${studyId}`);
-        console.log('Found studies:', studies);
         
-        if (studies.length === 0) {
-          throw new Error('Study not found');
+        if (!mounted) return;
+
+        const studyWithSeries = studies.find(s => s.series && s.series.length > 0);
+        
+        if (!studyWithSeries) {
+          throw new Error('Study not found or has no series data');
         }
 
-        setStudy(studies[0]);
-        if (studies[0].series?.length > 0) {
+        setStudy(convertStudy(studyWithSeries));
+        
+        if (studyWithSeries.series?.length > 0) {
+          const firstSeries = studyWithSeries.series[0];
+          const seriesId = firstSeries.series_uid || firstSeries.series_instance_uid;
+          
+          if (!seriesId) {
+            throw new Error('Invalid series data');
+          }
+
           setState(prev => ({
             ...prev,
-            selectedSeriesId: studies[0].series[0].series_instance_uid
+            selectedSeriesId: seriesId
           }));
         }
       } catch (err) {
-        console.error('Failed to load study:', err);
-        setState(prev => ({
-          ...prev,
-          error: err instanceof Error ? err.message : 'Failed to load study'
-        }));
+        if (mounted) {
+          setState(prev => ({
+            ...prev,
+            error: err instanceof Error ? err.message : 'Failed to load study'
+          }));
+        }
       }
     };
 
     loadStudy();
-  }, [studyId]); // Only run when studyId changes
+
+    return () => {
+      mounted = false;
+    };
+  }, [studyId]);
 
   useEffect(() => {
     const fetchPatients = async () => {
@@ -276,7 +370,8 @@ export const DicomViewer: React.FC<DicomViewerProps> = () => {
     try {
       const studies = await dicomService.searchStudies(`study:${studyId}`);
       if (studies.length > 0) {
-        setStudy(studies[0]);
+        // Convert the study before setting it
+        setStudy(convertStudy(studies[0]));
         setState(prev => ({
           ...prev,
           selectedStudyId: studyId,
@@ -305,74 +400,55 @@ export const DicomViewer: React.FC<DicomViewerProps> = () => {
     }
   };
 
-  const loadSeries = async (filePath: string) => {
-    try {
-      console.log('Loading series from path:', filePath);
-      const response = await fetch(filePath);
-      const imageArrayBuffer = await response.arrayBuffer();
-      
-      if (state.layout === 'mpr') {
-        console.log('Loading MPR views');
-        await loadMPRViews(filePath);
-      } else {
-        console.log('Loading single view');
-        await loadSingleView(imageArrayBuffer);
-      }
-    } catch (error) {
-      console.error('Failed to load series:', error);
-      setState(prev => ({
-        ...prev,
-        error: error instanceof Error ? error.message : 'Failed to load series'
-      }));
-    }
-  };
-
+  // Only initialize Cornerstone if we have a study
   useEffect(() => {
     let mounted = true;
-
+    let engine: RenderingEngine | null = null;
+    
     const initialize = async () => {
-      if (!renderingEngine) { // Only initialize if we haven't already
-        try {
-          console.log('Initializing Cornerstone');
-          await csInit();
-          await csToolsInit();
+      if (!studyId) return;
 
-          if (!mounted) return;
+      try {
+        console.log('Initializing Cornerstone');
+        await csInit();
+        await csToolsInit();
 
-          console.log('Creating rendering engine');
-          const engine = new RenderingEngine('myRenderingEngine');
-          setRenderingEngine(engine);
+        if (!mounted) return;
 
-          console.log('Adding tools');
-          addTool(PanTool);
-          addTool(ZoomTool);
+        console.log('Creating rendering engine');
+        engine = new RenderingEngine('myRenderingEngine');
+        setRenderingEngine(engine);
 
-          csToolsUtils.triggerEvent('pan', { 
-            mouseButtonMask: 1 
-          });
-          
-          console.log('Tools initialized successfully');
-        } catch (error) {
-          console.error('Error initializing Cornerstone:', error);
-          if (mounted) {
-            setState(prev => ({
-              ...prev,
-              error: 'Failed to initialize viewer'
-            }));
-          }
+        console.log('Adding tools');
+        addTool(PanTool);
+        addTool(ZoomTool);
+
+        csToolsUtils.triggerEvent('pan', { 
+          mouseButtonMask: 1 
+        });
+      } catch (error) {
+        console.error('Error initializing Cornerstone:', error);
+        if (mounted) {
+          setState(prev => ({
+            ...prev,
+            error: 'Failed to initialize viewer'
+          }));
         }
       }
     };
 
     initialize();
 
+    // Cleanup function
     return () => {
       mounted = false;
-      if (renderingEngine) {
-        renderingEngine.destroy();
+      if (engine) {
+        console.log('Cleaning up rendering engine');
+        engine.destroy();
+        setRenderingEngine(null);
       }
     };
-  }, [renderingEngine]); // Only re-run if renderingEngine changes
+  }, [studyId]); // Only run when studyId changes
 
   // Initialize MPR views
   useEffect(() => {
@@ -468,40 +544,67 @@ export const DicomViewer: React.FC<DicomViewerProps> = () => {
     }
   };
 
-  const loadSingleView = async (imageArrayBuffer: ArrayBuffer) => {
+  const loadSingleView = async (filePath: string) => {
     try {
+      setIsLoading(true);
       if (!renderingEngine || !viewerRef.current) {
         throw new Error('Rendering engine or viewer element not initialized');
       }
 
-      // Create and cache the image
-      const imageId = 'myImage';
-      await imageLoader.createAndCacheLocalImage(imageId, imageArrayBuffer);
+      console.log('[DicomViewer] Loading single view for:', filePath);
+
+      // Get the image data
+      const imageArrayBuffer = await dicomService.getImageData(filePath);
+      console.log('[DicomViewer] Got image data, creating image');
+
+      // Create a unique imageId
+      const imageId = `dicom://${filePath}`;
       
-      // Create the viewport
-      const viewport = renderingEngine.getViewport('stack') as StackViewport;
+      // Cache the image data
+      await imageLoader.createAndCacheLocalImage(imageId, imageArrayBuffer);
+      console.log('[DicomViewer] Image cached');
+
+      // Create or get the viewport
+      let viewport = renderingEngine.getViewport('stack') as StackViewport;
       
       if (!viewport) {
+        console.log('[DicomViewer] Creating new viewport');
         const viewportInput = {
           viewportId: 'stack',
           type: 'STACK',
           element: viewerRef.current,
+          defaultOptions: {
+            background: [0, 0, 0], // Black background
+          },
         };
         renderingEngine.enableElement(viewportInput);
+        viewport = renderingEngine.getViewport('stack') as StackViewport;
       }
 
-      // Set the image to display
+      // Set the image stack
+      console.log('[DicomViewer] Setting image stack');
       await viewport.setStack([imageId]);
-      renderingEngine.render();
+      
+      // Reset camera and render using the rendering engine
+      viewport.setCamera({ reset: true });  // Use setCamera with reset option
+      renderingEngine.render();  // Render using the engine
+      
+      console.log('[DicomViewer] View rendered');
 
       setState(prev => ({
         ...prev,
         totalImages: 1,
-        currentImageIndex: 0
+        currentImageIndex: 0,
+        error: null
       }));
+      setIsLoading(false);
     } catch (error) {
+      setIsLoading(false);
       console.error('Failed to load single view:', error);
-      setState(prev => ({ ...prev, error: 'Failed to load single view' }));
+      setState(prev => ({ 
+        ...prev, 
+        error: error instanceof Error ? error.message : 'Failed to load single view' 
+      }));
     }
   };
 
@@ -513,8 +616,40 @@ export const DicomViewer: React.FC<DicomViewerProps> = () => {
     }
   };
 
+  // Add this effect to load series when available
+  useEffect(() => {
+    const loadInitialSeries = async () => {
+      if (!study || !state.selectedSeriesId) {
+        console.log('Waiting for study and series ID');
+        return;
+      }
+
+      console.log('Loading initial series:', state.selectedSeriesId);
+      const series = findSelectedSeries(study, state.selectedSeriesId);
+      console.log('Found series:', series);
+
+      if (series?.filePath) {
+        console.log('Found series path:', series.filePath);
+        await loadSeries(series.filePath);
+      } else {
+        console.error('Missing file path. Series data:', series);
+        console.error('Full study data:', study);
+        setState(prev => ({
+          ...prev,
+          error: 'No file path available for this series'
+        }));
+      }
+    };
+
+    loadInitialSeries();
+  }, [study, state.selectedSeriesId, loadSeries]);
+
+  // Early return for welcome view
+  if (!studyId) {
+    return <WelcomeView />;
+  }
+
   if (state.error) {
-    console.error('Rendering error state:', state.error);
     return <ErrorMessage>{state.error}</ErrorMessage>;
   }
 
@@ -522,146 +657,94 @@ export const DicomViewer: React.FC<DicomViewerProps> = () => {
 
   return (
     <ViewerContainer>
-      <SelectionBar>
-        {/* Patient Selection */}
-        <div>
-          <label>Patient: </label>
-          <Select 
-            value={state.selectedPatientId} 
-            onChange={(e) => handlePatientSelect(e.target.value)}
-          >
-            <option value="">Select Patient</option>
-            {patients.map(patient => (
-              <option key={patient._id} value={patient._id}>
-                {patient.patient_id} - {patient.name}
-              </option>
-            ))}
-          </Select>
-        </div>
+      {/* Only show viewer UI when we have a study */}
+      <h2>{study?.description}</h2>
+      <div>Patient ID: {study?.patient_id}</div>
+      <div>Study Date: {study?.study_date && new Date(study.study_date).toLocaleDateString()}</div>
+      
+      {/* Viewer controls and grid */}
+      <LayoutControls>
+        <LayoutButton 
+          active={state.layout === 'single'} 
+          onClick={() => handleLayoutChange('single')}
+        >
+          Single View
+        </LayoutButton>
+        <LayoutButton 
+          active={state.layout === 'mpr'} 
+          onClick={() => handleLayoutChange('mpr')}
+        >
+          MPR Views
+        </LayoutButton>
+      </LayoutControls>
 
-        {/* Study Selection - Only show if patient is selected */}
-        {state.selectedPatientId && (
-          <div>
-            <label>Study: </label>
-            <Select
-              value={state.selectedStudyId}
-              onChange={(e) => handleStudySelect(e.target.value)}
-            >
-              <option value="">Select Study</option>
-              {patients
-                .find(p => p._id === state.selectedPatientId)
-                ?.studies.map(study => (
-                  <option key={study.studyInstanceUID} value={study.studyInstanceUID}>
-                    {new Date(study.studyDate).toLocaleDateString()} 
-                  </option>
-                ))}
-            </Select>
-          </div>
-        )}
+      <WindowLevelControls
+        center={state.windowLevel.windowCenter}
+        width={state.windowLevel.windowWidth}
+        onChange={handleWindowLevelChange}
+      />
 
-        {/* Series Selection - Only show if study is selected */}
-        {study && (
-          <div>
-            <label>Series: </label>
-            <Select
-              value={state.selectedSeriesId}
-              onChange={(e) => handleSeriesSelect(e.target.value)}
-            >
-              <option value="">Select Series</option>
-              {study.series.map(series => (
-                <option key={series.series_instance_uid} value={series.series_instance_uid}>
-                  {series.series_description || `Series ${series.series_number}`} ({series.modality})
-                </option>
-              ))}
-            </Select>
-          </div>
-        )}
-      </SelectionBar>
-
-      {/* Show study info and viewer only if a study is loaded */}
-      {study ? (
-        <>
-          <h2>{study.description}</h2>
-          <div>Patient ID: {study.patient_id}</div>
-          <div>Study Date: {new Date(study.study_date).toLocaleDateString()}</div>
-          
-          {/* Viewer controls and grid */}
-          <LayoutControls>
-            <LayoutButton 
-              active={state.layout === 'single'} 
-              onClick={() => handleLayoutChange('single')}
-            >
-              Single View
-            </LayoutButton>
-            <LayoutButton 
-              active={state.layout === 'mpr'} 
-              onClick={() => handleLayoutChange('mpr')}
-            >
-              MPR Views
-            </LayoutButton>
-          </LayoutControls>
-
-          <WindowLevelControls
-            center={state.windowLevel.windowCenter}
-            width={state.windowLevel.windowWidth}
-            onChange={handleWindowLevelChange}
-          />
-
-          <ViewerGrid layout={state.layout}>
-            {state.layout === 'single' ? (
-              <ViewerPanel>
-                <ViewerHeader>
-                  <span>Main View</span>
-                  <span>{state.currentImageIndex + 1} / {state.totalImages}</span>
-                </ViewerHeader>
-                <div ref={viewerRef} style={{ width: '100%', height: '100%' }} />
-              </ViewerPanel>
-            ) : (
-              <>
-                <ViewerPanel>
-                  <ViewerHeader>Axial</ViewerHeader>
-                  <MPRViewer
-                    seriesId={state.selectedSeriesId}
-                    orientation="axial"
-                    windowCenter={state.windowLevel.windowCenter}
-                    windowWidth={state.windowLevel.windowWidth}
-                    currentSlice={state.currentSlice}
-                    onSliceChange={handleSliceChange}
-                  />
-                </ViewerPanel>
-                <ViewerPanel>
-                  <ViewerHeader>Sagittal</ViewerHeader>
-                  <MPRViewer
-                    seriesId={state.selectedSeriesId}
-                    orientation="sagittal"
-                    windowCenter={state.windowLevel.windowCenter}
-                    windowWidth={state.windowLevel.windowWidth}
-                    currentSlice={state.currentSlice}
-                    onSliceChange={handleSliceChange}
-                  />
-                </ViewerPanel>
-                <ViewerPanel>
-                  <ViewerHeader>Coronal</ViewerHeader>
-                  <MPRViewer
-                    seriesId={state.selectedSeriesId}
-                    orientation="coronal"
-                    windowCenter={state.windowLevel.windowCenter}
-                    windowWidth={state.windowLevel.windowWidth}
-                    currentSlice={state.currentSlice}
-                    onSliceChange={handleSliceChange}
-                  />
-                </ViewerPanel>
-              </>
+      <ViewerGrid layout={state.layout}>
+        {state.layout === 'single' ? (
+          <ViewerPanel>
+            <ViewerHeader>
+              <span>Main View</span>
+              <span>{state.currentImageIndex + 1} / {state.totalImages}</span>
+            </ViewerHeader>
+            <div 
+              ref={viewerRef} 
+              style={{ 
+                width: '100%', 
+                height: '100%',
+                minHeight: '500px',
+                background: '#000',
+                position: 'relative'
+              }} 
+            />
+            {isLoading && (
+              <LoadingOverlay>
+                Loading DICOM image...
+              </LoadingOverlay>
             )}
-          </ViewerGrid>
-        </>
-      ) : (
-        <div style={{ textAlign: 'center', marginTop: '2rem' }}>
-          {patients.length > 0 ? 
-            'Select a patient and study to view images' : 
-            'Loading patient list...'}
-        </div>
-      )}
+          </ViewerPanel>
+        ) : (
+          <>
+            <ViewerPanel>
+              <ViewerHeader>Axial</ViewerHeader>
+              <MPRViewer
+                seriesId={state.selectedSeriesId}
+                orientation="axial"
+                windowCenter={state.windowLevel.windowCenter}
+                windowWidth={state.windowLevel.windowWidth}
+                currentSlice={state.currentSlice}
+                onSliceChange={handleSliceChange}
+              />
+            </ViewerPanel>
+            <ViewerPanel>
+              <ViewerHeader>Sagittal</ViewerHeader>
+              <MPRViewer
+                seriesId={state.selectedSeriesId}
+                orientation="sagittal"
+                windowCenter={state.windowLevel.windowCenter}
+                windowWidth={state.windowLevel.windowWidth}
+                currentSlice={state.currentSlice}
+                onSliceChange={handleSliceChange}
+              />
+            </ViewerPanel>
+            <ViewerPanel>
+              <ViewerHeader>Coronal</ViewerHeader>
+              <MPRViewer
+                seriesId={state.selectedSeriesId}
+                orientation="coronal"
+                windowCenter={state.windowLevel.windowCenter}
+                windowWidth={state.windowLevel.windowWidth}
+                currentSlice={state.currentSlice}
+                onSliceChange={handleSliceChange}
+              />
+            </ViewerPanel>
+          </>
+        )}
+      </ViewerGrid>
     </ViewerContainer>
   );
 };

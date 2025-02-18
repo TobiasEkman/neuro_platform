@@ -10,21 +10,34 @@ import Patient, {
 import Study from '../models/Study';
 import { Types } from 'mongoose';
 import mongoose from 'mongoose';
+import { createLogger } from '../utils/logger';
 
 const router = Router();
+const logger = createLogger('patients-route');
 
 router.get('/', async (req: Request, res: Response) => {
   try {
     const patients = await Patient.find();
+    
+    // Update logging to use patient_id
+    patients.forEach(patient => {
+      logger.info('Patient ID check', {
+        mongoId: patient._id,
+        patient_id: patient.patient_id,
+        hasValidFormat: /^PID_\d{4}$/.test(patient.patient_id)
+      });
+    });
+    
     res.json(patients);
   } catch (err: any) {
+    logger.error('Error fetching patients', { error: err.message });
     res.status(500).json({ message: err.message });
   }
 });
 
 router.get('/pid/:pid', async (req: Request, res: Response) => {
   try {
-    const patient = await Patient.findOne({ id: req.params.pid });
+    const patient = await Patient.findOne({ patient_id: req.params.pid });
     if (!patient) {
       return res.status(404).json({ message: 'Patient not found' });
     }
@@ -47,7 +60,7 @@ router.post('/', async (req: Request, res: Response) => {
 router.post('/pid/:pid/data/:dataType', async (req: Request, res: Response) => {
   try {
     const { pid, dataType } = req.params;
-    const patient = await Patient.findOne({ id: pid });
+    const patient = await Patient.findOne({ patient_id: pid });
     if (!patient) {
       return res.status(404).json({ message: 'Patient not found' });
     }
@@ -105,7 +118,7 @@ router.post('/pid/:pid/data/:dataType', async (req: Request, res: Response) => {
 router.put('/pid/:pid', async (req: Request, res: Response) => {
   try {
     const patient = await Patient.findOneAndUpdate(
-      { id: req.params.pid },
+      { patient_id: req.params.pid },
       { $set: {
         name: req.body.name,
         age: req.body.age,
@@ -125,7 +138,7 @@ router.put('/pid/:pid', async (req: Request, res: Response) => {
 
 router.delete('/pid/:pid', async (req: Request, res: Response) => {
   try {
-    const patient = await Patient.findOneAndDelete({ id: req.params.pid });
+    const patient = await Patient.findOneAndDelete({ patient_id: req.params.pid });
     if (!patient) {
       return res.status(404).json({ message: 'Patient not found' });
     }
@@ -163,7 +176,7 @@ router.get('/:id/journal', async (req: Request, res: Response) => {
             {
                 patient: {
                     name: patient.name,
-                    id: patient.id,
+                    id: patient.patient_id,
                     age: patient.age,
                     diagnosis: patient.diagnosis
                 },
@@ -220,7 +233,7 @@ router.post('/bulk', async (req: Request, res: Response) => {
 router.delete('/pid/:pid/data/:dataType/:itemId', async (req: Request, res: Response) => {
   try {
     const { pid, dataType, itemId } = req.params;
-    const patient = await Patient.findOne({ id: pid });
+    const patient = await Patient.findOne({ patient_id: pid });
     if (!patient) {
       return res.status(404).json({ message: 'Patient not found' });
     }
@@ -228,13 +241,13 @@ router.delete('/pid/:pid/data/:dataType/:itemId', async (req: Request, res: Resp
     switch (dataType) {
       case 'images':
         await Patient.updateOne(
-          { id: pid },
+          { patient_id: pid },
           { $pull: { images: { id: itemId } } }
         );
         break;
       case 'icpReadings':
         await Patient.updateOne(
-          { id: pid },
+          { patient_id: pid },
           { $pull: { icpReadings: { _id: new Types.ObjectId(itemId) } } }
         );
         break;
@@ -251,7 +264,7 @@ router.delete('/pid/:pid/data/:dataType/:itemId', async (req: Request, res: Resp
 router.put('/pid/:pid/data/:dataType/bulk', async (req: Request, res: Response) => {
   try {
     const { pid, dataType } = req.params;
-    const patient = await Patient.findOne({ id: pid });
+    const patient = await Patient.findOne({ patient_id: pid });
     if (!patient) {
       return res.status(404).json({ message: 'Patient not found' });
     }
@@ -263,7 +276,7 @@ router.put('/pid/:pid/data/:dataType/bulk', async (req: Request, res: Response) 
     switch (dataType) {
       case 'images':
         await Patient.updateOne(
-          { id: pid },
+          { patient_id: pid },
           { 
             $set: { 
               images: req.body.map(img => ({
@@ -277,7 +290,7 @@ router.put('/pid/:pid/data/:dataType/bulk', async (req: Request, res: Response) 
 
       case 'icpReadings':
         await Patient.updateOne(
-          { id: pid },
+          { patient_id: pid },
           { 
             $set: { 
               icpReadings: req.body.map(reading => ({
@@ -293,7 +306,7 @@ router.put('/pid/:pid/data/:dataType/bulk', async (req: Request, res: Response) 
         return res.status(400).json({ message: 'Unsupported data type' });
     }
 
-    const updatedPatient = await Patient.findOne({ id: pid });
+    const updatedPatient = await Patient.findOne({ patient_id: pid });
     res.json({ message: `${dataType} bulk updated successfully`, patient: updatedPatient });
   } catch (err: any) {
     res.status(500).json({ message: err.message });

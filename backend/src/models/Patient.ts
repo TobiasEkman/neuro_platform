@@ -27,7 +27,7 @@ export interface ICPReadingData {
 
 // Define interfaces for Mongoose documents
 export interface IPatient extends Document {
-  id: string;
+  patient_id: string;
   name: string;
   age: number;
   diagnosis: string;
@@ -89,7 +89,7 @@ const ICPReadingSchema = new Schema<ICPReadingDocument>({
 });
 
 const PatientSchema = new Schema<IPatient>({
-  id: { 
+  patient_id: { 
     type: String, 
     required: true,
     unique: true,
@@ -150,9 +150,9 @@ PatientSchema.index({ 'images.type': 1 });
 // Auto-increment PID function
 PatientSchema.pre('save', async function(next) {
   if (this.isNew) {
-    const lastPatient = await mongoose.model('Patient').findOne({}, { id: 1 }).sort({ id: -1 });
-    const lastNum = lastPatient ? parseInt(lastPatient.id.split('_')[1]) : 0;
-    this.id = `PID_${String(lastNum + 1).padStart(4, '0')}`;
+    const lastPatient = await mongoose.model('Patient').findOne({}, { patient_id: 1 }).sort({ patient_id: -1 });
+    const lastNum = lastPatient ? parseInt(lastPatient.patient_id.split('_')[1]) : 0;
+    this.patient_id = `PID_${String(lastNum + 1).padStart(4, '0')}`;
   }
   next();
 });

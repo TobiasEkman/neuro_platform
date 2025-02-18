@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { patientService } from '../../services/patientService';
 import { FaSort, FaSortUp, FaSortDown, FaSearch, FaUpload } from 'react-icons/fa';
-import { DicomManager } from '../DicomManager/DicomManager';
+import { DicomManager } from '../DicomManager';
 
 const Container = styled.div`
   padding: 2rem;

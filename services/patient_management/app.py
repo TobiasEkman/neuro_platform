@@ -3,6 +3,8 @@ from flask_cors import CORS
 from pymongo import MongoClient
 import os
 import logging
+from bson import ObjectId
+from bson.errors import InvalidId
 
 app = Flask(__name__)
 CORS(app)
@@ -31,6 +33,49 @@ def get_patients():
         return jsonify(patients)
     except Exception as e:
         logger.error(f"Error fetching patients: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/patients/with-dicom', methods=['GET'])
+def get_patients_with_dicom():
+    try:
+        # Get patients that have DICOM studies
+        patients = list(db.patients.find({
+            'studies': {'$exists': True, '$ne': []}
+        }))
+        
+        # Convert ObjectId to string for JSON serialization
+        for patient in patients:
+            if '_id' in patient:
+                patient['_id'] = str(patient['_id'])
+                
+        return jsonify(patients)
+    except Exception as e:
+        logger.error(f"Error fetching patients with DICOM: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/patients/<patient_id>', methods=['GET'])
+def get_patient(patient_id):
+    try:
+        # Try to convert to ObjectId if it looks like one
+        if len(patient_id) == 24:
+            try:
+                patient_id_obj = ObjectId(patient_id)
+                patient = db.patients.find_one({'_id': patient_id_obj})
+                if patient:
+                    patient['_id'] = str(patient['_id'])
+                    return jsonify(patient)
+            except InvalidId:
+                pass
+        
+        # If not ObjectId, try as patient_id string
+        patient = db.patients.find_one({'patient_id': patient_id})
+        if patient:
+            patient['_id'] = str(patient['_id'])
+            return jsonify(patient)
+            
+        return jsonify({'error': 'Patient not found'}), 404
+    except Exception as e:
+        logger.error(f"Error fetching patient: {e}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':

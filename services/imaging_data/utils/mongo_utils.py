@@ -1,29 +1,29 @@
 from pymongo import ASCENDING, IndexModel
+from pymongo.errors import OperationFailure
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def init_mongo_indexes(db):
-    # Create indexes for patients collection
-    db.patients.create_indexes([
-        IndexModel([("patient_id", ASCENDING)], unique=True),
-        IndexModel([("patient_name", ASCENDING)])
-    ])
-
-    # Create indexes for studies collection
-    db.studies.create_indexes([
-        IndexModel([("study_instance_uid", ASCENDING)], unique=True),
-        IndexModel([("patient_id", ASCENDING)])
-    ])
-
-    # Create indexes for series collection
-    db.series.create_indexes([
-        IndexModel([("series_instance_uid", ASCENDING)], unique=True),
-        IndexModel([("study_instance_uid", ASCENDING)])
-    ])
-
-    # Create indexes for instances collection
-    db.instances.create_indexes([
-        IndexModel([("sop_instance_uid", ASCENDING)], unique=True),
-        IndexModel([("series_instance_uid", ASCENDING)])
-    ])
+    """Initialize required MongoDB indexes"""
+    try:
+        # Patient collection indexes
+        db.patients.create_index('patient_id', unique=True)
+        
+        # Studies collection indexes
+        db.studies.create_index('study_instance_uid', unique=True)
+        db.studies.create_index('patient_id')
+        
+        # Create compound index for series
+        db.studies.create_index([
+            ('series.series_uid', 1),
+            ('study_instance_uid', 1)
+        ])
+        
+        logger.info("MongoDB indexes initialized successfully")
+    except Exception as e:
+        logger.error(f"Error creating indexes: {e}")
 
 def get_or_create_document(collection, query, data):
     """

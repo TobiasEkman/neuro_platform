@@ -1,1 +1,1 @@
-export { DicomManager } from './DicomManager'; 
+export { default as DicomManager } from './DicomManager'; 

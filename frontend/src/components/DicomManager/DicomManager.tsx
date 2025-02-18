@@ -185,7 +185,48 @@ const StudyInfo = ({ study }: { study: DicomStudy }) => {
   );
 };
 
-export const DicomManager: React.FC<DicomManagerProps> = ({ 
+const ConfigSection = styled.div`
+  margin-bottom: 20px;
+  padding: 15px;
+  background: ${props => props.theme.colors.background.secondary};
+  border-radius: 8px;
+
+  .path-input-container {
+    display: flex;
+    gap: 10px;
+  }
+
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex-grow: 1;
+  }
+
+  input {
+    padding: 8px;
+    border: 1px solid ${props => props.theme.colors.border};
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  button {
+    align-self: flex-end;
+    padding: 8px 16px;
+    background: ${props => props.theme.colors.primary};
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    height: 37px;  // Match input height
+
+    &:hover {
+      background: ${props => props.theme.colors.primaryDark};
+    }
+  }
+`;
+
+const DicomManager: React.FC<DicomManagerProps> = ({ 
   patientId,
   onUploadComplete
 }) => {
@@ -195,6 +236,9 @@ export const DicomManager: React.FC<DicomManagerProps> = ({
   const { patient } = usePatient(patientId);
   const [progress, setProgress] = useState<number>(0);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [dicomPath, setDicomPath] = useState<string>(
+    localStorage.getItem('lastDicomPath') || ''
+  );
 
   // Fetch studies when patientId changes
   useEffect(() => {
@@ -219,13 +263,23 @@ export const DicomManager: React.FC<DicomManagerProps> = ({
     fetchStudies();
   }, [patientId]);
 
-  const handleDirectorySelect = async (path: string) => {
+  const handleDirectorySelect = async (selectedPath: string) => {
     try {
       setIsProcessing(true);
       setError(null);
       setProgress(0);
       
-      const result = await dicomService.parseDirectory(path, (progress) => {
+      // If we have a base path, make sure the selected path is under it
+      let fullPath = selectedPath;
+      if (dicomPath) {
+        // Remove the base path prefix if it's already there
+        const relativePath = selectedPath.replace(dicomPath, '').replace(/^[/\\]+/, '');
+        fullPath = `${dicomPath}/${relativePath}`;
+      }
+
+      console.log('[DicomManager] Processing directory:', fullPath);
+      
+      const result = await dicomService.parseDirectory(fullPath, (progress) => {
         setProgress(progress.percentage);
       });
       
@@ -256,34 +310,77 @@ export const DicomManager: React.FC<DicomManagerProps> = ({
 
   return (
     <DicomManagerContainer>
-      <h2>DICOM Studies {patient && `for ${patient.name}`}</h2>
+      <h2>DICOM Management</h2>
       
-      {/* Error display */}
-      {error && (
-        <ErrorMessage>
-          {error}
-          <CloseButton onClick={() => setError(null)}>×</CloseButton>
-        </ErrorMessage>
-      )}
+      <ConfigSection>
+        <div className="path-input-container">
+          <label>
+            DICOM Base Directory:
+            <input 
+              type="text" 
+              value={dicomPath}
+              onChange={(e) => {
+                setDicomPath(e.target.value);
+                localStorage.setItem('lastDicomPath', e.target.value);
+              }}
+              placeholder="e.g., C:/DICOM_Data or /data/dicom"
+            />
+          </label>
+          <button 
+            onClick={async () => {
+              try {
+                await dicomService.configureDicomPath(dicomPath);
+                setError(null); // Clear any previous errors
+              } catch (error) {
+                setError(error instanceof Error ? error.message : 'Failed to save DICOM path');
+              }
+            }}
+          >
+            Save Path
+          </button>
+        </div>
+        <small style={{ marginTop: '8px', color: 'gray' }}>
+          All DICOM files must be located somewhere under this base directory
+        </small>
+      </ConfigSection>
 
-      <UploadSection>
-        <FileUpload 
-          onDirectorySelect={handleDirectorySelect}
-          disabled={isProcessing}
-        />
-        {isProcessing && (
-          <ProgressBar 
-            progress={progress} 
-            text={`Processing: ${progress.toFixed(1)}%`}
-          />
+      <DicomManagerContainer>
+        <h2>DICOM Studies {patient && `for ${patient.name}`}</h2>
+        
+        {/* Error display */}
+        {error && (
+          <ErrorMessage>
+            {error}
+            <CloseButton onClick={() => setError(null)}>×</CloseButton>
+          </ErrorMessage>
         )}
-      </UploadSection>
-      
-      <DicomList 
-        studies={studies}
-        selectedStudyId={selectedStudyId}
-        onStudySelect={handleStudySelect}
-      />
+
+        <UploadSection>
+          <FileUpload 
+            onDirectorySelect={(path) => {
+              // Use the configured base path if provided
+              const fullPath = dicomPath ? 
+                `${dicomPath}/${path}` : path;
+              handleDirectorySelect(fullPath);
+            }}
+            disabled={isProcessing}
+          />
+          {isProcessing && (
+            <ProgressBar 
+              progress={progress} 
+              text={`Processing: ${progress.toFixed(1)}%`}
+            />
+          )}
+        </UploadSection>
+        
+        <DicomList 
+          studies={studies}
+          selectedStudyId={selectedStudyId}
+          onStudySelect={handleStudySelect}
+        />
+      </DicomManagerContainer>
     </DicomManagerContainer>
   );
-}; 
+};
+
+export default DicomManager; 

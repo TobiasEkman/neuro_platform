@@ -1,3 +1,5 @@
+import { DicomStudy as MedicalDicomStudy, DicomSeries as MedicalDicomSeries } from './medical';
+
 export interface DicomStudy {
     _id: string;
     study_instance_uid: string;
@@ -47,4 +49,22 @@ export interface VolumeData {
     spacing?: [number, number, number];
     windowCenter?: number;
     windowWidth?: number;
-} 
+}
+
+// Helper function to convert types
+export const convertStudy = (study: any): MedicalDicomStudy => ({
+  study_instance_uid: study.study_instance_uid || study.study_uid,
+  study_uid: study.study_uid,
+  description: study.description || '',
+  study_date: study.study_date || '',
+  patient_id: study.patient_id || '',
+  series: study.series?.map((s: any) => ({
+    series_instance_uid: s.series_instance_uid || s.series_uid,
+    series_uid: s.series_uid,
+    series_number: String(s.series_number), // Convert to string
+    description: s.description || s.series_description || '',
+    modality: s.modality || 'unknown',
+    instances: s.instances || [],
+    filePath: s.filePath || s.file_path || s.instances?.[0]?.file_path
+  })) || []
+}); 

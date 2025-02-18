@@ -40,7 +40,9 @@ export const DicomList: React.FC<DicomListProps> = ({
           <StudyInfo study={study} />
           <ViewButton onClick={(e) => {
             e.stopPropagation();
-            navigate(`/viewer/${study.study_instance_uid}`);
+            navigate('/dicom-viewer', { 
+              state: { studyId: study.study_instance_uid }
+            });
           }}>
             View Images
           </ViewButton>

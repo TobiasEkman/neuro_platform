@@ -81,13 +81,20 @@ export interface TumorAnalysis {
   predictedResectionRate: number;
 }
 
+export interface DicomInstance {
+  sop_instance_uid: string;
+  file_path: string;
+  instance_number: number;
+}
+
 export interface DicomSeries {
   series_instance_uid: string;
-  series_number?: number;
-  series_description?: string;
-  modality?: string;
-  images?: DicomImage[];
-  filePath?: string;
+  series_uid?: string;
+  series_number: string;
+  description: string;
+  modality: string;
+  instances: DicomInstance[];
+  filePath: string;
 }
 
 export interface DicomImage {
@@ -105,16 +112,11 @@ export interface DicomImage {
 }
 
 export interface DicomStudy {
-  _id: string;
   study_instance_uid: string;
+  study_uid?: string;
   description: string;
-  study_date: string;  // Format: "YYYYMMDD"
-  study_time?: string; // Format: "HHMMSS"
-  accession_number?: string;
+  study_date: string;
   patient_id: string;
-  modalities: string[];
-  num_series: number;
-  num_instances: number;
   series: DicomSeries[];
 }
 
