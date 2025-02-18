@@ -59,14 +59,14 @@ const SurgicalTools: React.FC<SurgicalToolsProps> = ({ selectedTool, brainMesh }
 
   const Scalpel = () => (
     <group rotation={[0, 0, Math.PI / 4]}>
-      <Cylinder 
-        args={[0.02, 0.02, 0.3, 8]} 
+      <Cylinder
+        args={[0.02, 0.02, 0.3, 8]}
         position={[0, 0.15, 0]}
       >
         <meshStandardMaterial color="#666666" metalness={0.8} />
       </Cylinder>
-      <Box 
-        args={[0.01, 0.08, 0.02]} 
+      <Box
+        args={[0.01, 0.08, 0.02]}
         position={[0, 0, 0]}
       >
         <meshStandardMaterial color="#cccccc" metalness={0.9} />
@@ -80,21 +80,10 @@ const SurgicalTools: React.FC<SurgicalToolsProps> = ({ selectedTool, brainMesh }
         <Line
           key={i}
           points={points}
-          color="red"
-          lineWidth={5}
-          transparent
-          opacity={0.8}
+          color="#ff0000"
+          lineWidth={1}
         />
       ))}
-      {currentLine.length > 0 && (
-        <Line
-          points={currentLine}
-          color="red"
-          lineWidth={5}
-          transparent
-          opacity={0.8}
-        />
-      )}
     </group>
   );
 
@@ -121,7 +110,7 @@ const SurgicalTools: React.FC<SurgicalToolsProps> = ({ selectedTool, brainMesh }
 
   return (
     <>
-      <group 
+      <group
         ref={toolRef}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}

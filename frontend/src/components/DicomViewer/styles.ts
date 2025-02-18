@@ -1,31 +1,35 @@
 import styled from 'styled-components';
 
 export const ViewerContainer = styled.div`
-  display: flex;
-  flex-direction: column;
-  height: 100%;
+  padding: 2rem;
   background: ${props => props.theme.colors.background.primary};
-`;
-
-export const ControlsContainer = styled.div`
-  padding: 1rem;
-  border-bottom: 1px solid ${props => props.theme.colors.border};
-  display: flex;
-  gap: 1rem;
-  align-items: center;
+  min-height: 100vh;
 `;
 
 export const ViewerLayout = styled.div`
-  flex: 1;
   display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 1rem;
+  margin-top: 1rem;
+`;
+
+export const ControlsContainer = styled.div`
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
   padding: 1rem;
+  background: ${props => props.theme.colors.background.secondary};
+  border-radius: 8px;
+`;
 
-  &.single {
-    grid-template-columns: 1fr;
-  }
-
-  &.mpr {
-    grid-template-columns: repeat(3, 1fr);
-  }
+export const ErrorMessage = styled.div`
+  background-color: ${props => props.theme.colors.error};
+  color: white;
+  padding: 1rem;
+  margin: 1rem;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
 `; 

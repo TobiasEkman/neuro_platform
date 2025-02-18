@@ -1,10 +1,13 @@
 export interface Patient {
-  id: string;
+  _id: string;
+  patient_id: string;  // PID
   name: string;
-  age: number;
+  dob: string | null;  // YYYY-MM-DD format
+  sex: string;
   diagnosis: string;
-  studyDate: Date;
-  images: ImageStudy[];
+  studyDate?: Date;
+  images?: ImageStudy[];
+  studies?: string[];  // Array of study UIDs
 }
 
 export interface ImageStudy {
@@ -84,6 +87,7 @@ export interface DicomSeries {
   series_description?: string;
   modality?: string;
   images?: DicomImage[];
+  filePath?: string;
 }
 
 export interface DicomImage {
@@ -101,13 +105,17 @@ export interface DicomImage {
 }
 
 export interface DicomStudy {
-  id: string;
-  type: 'MRI' | 'CT' | 'fMRI' | 'DTI';
-  date: Date;
+  _id: string;
   study_instance_uid: string;
+  description: string;
+  study_date: string;  // Format: "YYYYMMDD"
+  study_time?: string; // Format: "HHMMSS"
+  accession_number?: string;
   patient_id: string;
-  study_description?: string;
-  series?: DicomSeries[];
+  modalities: string[];
+  num_series: number;
+  num_instances: number;
+  series: DicomSeries[];
 }
 
 export interface DicomImportResult {

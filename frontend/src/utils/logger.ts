@@ -21,33 +21,19 @@ const shouldLog = (level: LogLevel): boolean => {
   return config.enabled && LOG_LEVELS[level] >= LOG_LEVELS[config.level];
 };
 
+// Simple logger for frontend
 export const logger = {
-  debug: (message: string, ...args: any[]) => {
-    if (shouldLog('debug')) {
-      console.debug(`[DEBUG] ${message}`, ...args);
-    }
+  info: (message: string, meta?: object) => {
+    console.log(message, meta);
   },
-
-  info: (message: string, ...args: any[]) => {
-    if (shouldLog('info')) {
-      console.info(`[INFO] ${message}`, ...args);
-    }
+  error: (message: string, error?: unknown) => {
+    console.error(message, error);
   },
-
-  warn: (message: string, ...args: any[]) => {
-    if (shouldLog('warn')) {
-      console.warn(`[WARN] ${message}`, ...args);
-    }
+  warn: (message: string, meta?: object) => {
+    console.warn(message, meta);
   },
-
-  error: (message: string | Error, ...args: any[]) => {
-    if (shouldLog('error')) {
-      if (message instanceof Error) {
-        console.error(`[ERROR] ${message.message}`, message.stack, ...args);
-      } else {
-        console.error(`[ERROR] ${message}`, ...args);
-      }
-    }
+  debug: (message: string, meta?: object) => {
+    console.debug(message, meta);
   },
 
   // Konfigurera loggern

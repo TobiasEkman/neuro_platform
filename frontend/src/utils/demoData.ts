@@ -2,7 +2,8 @@ import { Patient, ICPReading, TumorAnalysis } from '../types/medical';
 
 export const generateDemoData = () => {
   const demoPatient: Patient = {
-    id: 'DEMO-001',
+    _id: 'DEMO-001',
+    patient_id: 'PID_0001',
     name: 'John Doe',
     age: 45,
     diagnosis: 'Right frontal glioblastoma with mass effect',

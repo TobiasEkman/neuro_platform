@@ -1,4 +1,5 @@
-import axios, { AxiosError } from 'axios';
+import axios from 'axios';
+import type { AxiosError } from 'axios';
 import { Patient, VitalSigns } from '../types/medical';
 
 // Configure axios defaults
@@ -13,7 +14,7 @@ export const patientService = {
       console.log('Patient response:', response.data); // Debug log
       return response.data;
     } catch (error) {
-      if (error instanceof AxiosError) {
+      if (axios.isAxiosError(error)) {
         console.error('Error fetching patients:', error.response || error);
       } else {
         console.error('Error fetching patients:', error);
@@ -32,9 +33,9 @@ export const patientService = {
     }
   },
 
-  getPatientByPid: async (pid: string) => {
+  getPatientByPid: async (patient_id: string) => {
     try {
-      const response = await axios.get(`/api/patients/pid/${pid}`);
+      const response = await axios.get(`/api/patients/pid/${patient_id}`);
       return response.data;
     } catch (error) {
       console.error('Error fetching patient by PID:', error);
@@ -42,9 +43,9 @@ export const patientService = {
     }
   },
 
-  searchByPid: async (pid: string) => {
+  searchByPid: async (patient_id: string) => {
     try {
-      const response = await axios.get(`/api/patients?pid=${pid}`);
+      const response = await axios.get(`/api/patients?pid=${patient_id}`);
       return response.data;
     } catch (error) {
       console.error('Error searching patient by PID:', error);

@@ -92,6 +92,99 @@ const CloseButton = styled.button`
   padding: 5px;
 `;
 
+interface ProgressBarProps {
+  progress: number;
+  text: string;
+}
+
+const ProgressBar = styled.div<ProgressBarProps>`
+  width: 100%;
+  height: 20px;
+  background-color: #ddd;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 10px;
+  position: relative;
+
+  &:after {
+    content: "${props => props.text}";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    z-index: 1;
+  }
+
+  &:before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background-color: ${props => props.theme.colors.primary};
+    width: ${props => `${props.progress}%`};
+    border-radius: 10px;
+    transition: width 0.5s ease-in-out;
+  }
+`;
+
+interface StudyListItemProps {
+  study: DicomStudy;
+  isSelected: boolean;
+  onSelect: (studyId: string) => void;
+}
+
+const StudyListItem = styled.div<{ isSelected: boolean }>`
+  padding: 10px;
+  margin: 5px 0;
+  border: 1px solid ${props => props.theme.colors.border};
+  border-radius: 5px;
+  background-color: ${props => props.isSelected ? props.theme.colors.highlight : 'transparent'};
+  cursor: pointer;
+  
+  &:hover {
+    background-color: ${props => props.theme.colors.highlightHover};
+  }
+`;
+
+const StudyInfo = ({ study }: { study: DicomStudy }) => {
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return 'No Date';
+    
+    // Handle YYYYMMDD format
+    if (dateStr.length === 8) {
+      const year = dateStr.substring(0, 4);
+      const month = dateStr.substring(4, 6);
+      const day = dateStr.substring(6, 8);
+      return new Date(`${year}-${month}-${day}`).toLocaleDateString();
+    }
+    
+    // Handle ISO format (YYYY-MM-DD)
+    const date = new Date(dateStr);
+    return isNaN(date.getTime()) ? 'Invalid Date' : date.toLocaleDateString();
+  };
+
+  return (
+    <>
+      <h3>{study.description || 'Untitled Study'}</h3>
+      <div>
+        Date: {formatDate(study.study_date)}
+      </div>
+      <div>
+        Series Count: {study.num_series || study.series?.length || 0}
+      </div>
+      <div>
+        Modality: {study.modalities?.join(', ') || ''}
+      </div>
+    </>
+  );
+};
+
 export const DicomManager: React.FC<DicomManagerProps> = ({ 
   patientId,
   onUploadComplete
@@ -100,6 +193,8 @@ export const DicomManager: React.FC<DicomManagerProps> = ({
   const [selectedStudyId, setSelectedStudyId] = useState<string>();
   const [error, setError] = useState<string | null>(null);
   const { patient } = usePatient(patientId);
+  const [progress, setProgress] = useState<number>(0);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // Fetch studies when patientId changes
   useEffect(() => {
@@ -107,10 +202,12 @@ export const DicomManager: React.FC<DicomManagerProps> = ({
       try {
         if (patientId) {
           const fetchedStudies = await dicomService.searchStudies(`patient:${patientId}`);
+          console.log('Fetched studies:', fetchedStudies);
           setStudies(fetchedStudies);
         } else {
           // If no patientId, fetch all studies
           const fetchedStudies = await dicomService.searchStudies('');
+          console.log('Fetched studies:', fetchedStudies);
           setStudies(fetchedStudies);
         }
       } catch (error) {
@@ -122,10 +219,20 @@ export const DicomManager: React.FC<DicomManagerProps> = ({
     fetchStudies();
   }, [patientId]);
 
-  const handleDirectorySelect = useCallback(async (directoryPath: string) => {
+  const handleDirectorySelect = async (path: string) => {
     try {
-      // Tell backend to scan this directory
-      const result = await dicomService.parseLocalDirectory(directoryPath);
+      setIsProcessing(true);
+      setError(null);
+      setProgress(0);
+      
+      const result = await dicomService.parseDirectory(path, (progress) => {
+        setProgress(progress.percentage);
+      });
+      
+      if (!result.studies || result.studies.length === 0) {
+        setError('No DICOM files found in the selected directory');
+        return;
+      }
       
       // Refresh studies list
       const updatedStudies = await dicomService.searchStudies(
@@ -137,10 +244,11 @@ export const DicomManager: React.FC<DicomManagerProps> = ({
         onUploadComplete(result);
       }
     } catch (error) {
-      console.error('Directory processing error:', error);
       setError(error instanceof Error ? error.message : 'Failed to process directory');
+    } finally {
+      setIsProcessing(false);
     }
-  }, [patientId, onUploadComplete]);
+  };
 
   const handleStudySelect = useCallback((study: DicomStudy) => {
     setSelectedStudyId(study.study_instance_uid);
@@ -161,7 +269,14 @@ export const DicomManager: React.FC<DicomManagerProps> = ({
       <UploadSection>
         <FileUpload 
           onDirectorySelect={handleDirectorySelect}
+          disabled={isProcessing}
         />
+        {isProcessing && (
+          <ProgressBar 
+            progress={progress} 
+            text={`Processing: ${progress.toFixed(1)}%`}
+          />
+        )}
       </UploadSection>
       
       <DicomList 

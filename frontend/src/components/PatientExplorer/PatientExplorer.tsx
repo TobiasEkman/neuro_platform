@@ -374,6 +374,7 @@ export const PatientExplorer: React.FC = () => {
         <TableHeader>
           <TableRow>
             {[
+              { field: 'patient_id', label: 'PID', width: '10%' },
               { field: 'name', label: 'Name', width: '20%' },
               { field: 'age', label: 'Age', width: '10%' },
               { field: 'diagnosis', label: 'Diagnosis', width: '25%' },
@@ -404,6 +405,12 @@ export const PatientExplorer: React.FC = () => {
               onClick={() => handleSelectPatient(patient)}
               selected={selectedPatient?._id === patient._id}
             >
+              <Td>{editingId === patient._id ? (
+                <EditableCell
+                  value={editData?.patient_id || ''}
+                  onChange={e => setEditData(prev => prev ? { ...prev, patient_id: e.target.value } : null)}
+                />
+              ) : patient.patient_id}</Td>
               <Td>{editingId === patient._id ? (
                 <EditableCell
                   value={editData?.name || ''}

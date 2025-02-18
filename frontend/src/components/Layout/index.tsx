@@ -54,7 +54,7 @@ const Layout: React.FC = () => {
           <Route path="/preop-planning" element={<PreopPlanning />} />
           <Route path="/simulator" element={<NeurosurgerySimulator />} />
           <Route path="/inference" element={<LocalInference />} />
-          <Route path="/dicom-viewer" element={<DicomViewer seriesId="default" />} />
+          <Route path="/dicom-viewer" element={<DicomViewer />} />
           <Route path="/documentation" element={<MedicalDocumentation />} />
           <Route path="/debug" element={<DicomDebug />} />
           <Route path="/patients" element={<PatientExplorer />} />

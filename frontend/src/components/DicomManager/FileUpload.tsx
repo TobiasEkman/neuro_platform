@@ -14,11 +14,16 @@ interface Props {
 
 export const FileUpload: React.FC<Props> = ({ onDirectorySelect, disabled }) => {
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
-    // Get the selected directory path
-    const directory = event.target.files?.[0]?.webkitRelativePath.split('/')[0];
-    if (directory) {
-      onDirectorySelect(directory);
-    }
+    const fileList = event.target.files;
+    if (!fileList || fileList.length === 0) return;
+
+    // Get the full path from the first file
+    const fullPath = fileList[0].webkitRelativePath;
+    // Get only the top-level directory name
+    const directoryName = fullPath.split('/')[0];
+    
+    console.log('Selected directory name:', directoryName);
+    onDirectorySelect(directoryName);
   };
 
   return (

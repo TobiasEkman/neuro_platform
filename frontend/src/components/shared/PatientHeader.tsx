@@ -9,7 +9,7 @@ export const PatientHeader: React.FC<PatientHeaderProps> = ({ patient }) => {
   return (
     <div className="patient-header">
       <div className="patient-info">
-        <span>ID: {patient.id}</span>
+        <span>ID: {patient.patient_id}</span>
         <span>Name: {patient.name}</span>
         <span>Age: {patient.age}</span>
         <span>Diagnosis: {patient.diagnosis}</span>

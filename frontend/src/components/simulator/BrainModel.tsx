@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { Sphere, Box } from '@react-three/drei';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, Canvas, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 
 interface BrainModelProps {
