@@ -206,7 +206,16 @@ npm run dev
 
 Each service can be tested independently using either Docker or local development.
 
-Using Docker (Recommended):
+Local Development (recommended in the beginning):
+```bash
+cd services/local_inference  # or other service
+python -m venv venv
+source venv/bin/activate  # or .\venv\Scripts\activate on Windows
+pip install -r requirements.txt
+python app.py
+```
+
+Using Docker:
 ```bash
 # Start a specific service in development mode
 cd docker
@@ -216,30 +225,18 @@ docker-compose -f docker-compose.dev.yml up patient_management mongodb
 docker-compose -f docker-compose.dev.yml up patient_management mongodb imaging_data
 ```
 
-Local Development:
-```bash
-cd services/local_inference  # or other service
-python -m venv venv
-source venv/bin/activate  # or .\venv\Scripts\activate on Windows
-pip install -r requirements.txt
-python app.py
-```
+**4. Database Setup**
 
-**4. Testing with Mock Data (Probably not needed)**
+Start MongoDB, for example through MongoDB Compass.
 
-Generate mock data for specific services:
-```bash
-cd data
+DB has adress localhost:27017
 
-# Generate mock data for local inference service
-python mock_data_generator.py local_inference
+Collections:
+- patients
+- studies
 
-# Generate mock ICP data
-python mock_data_generator.py icp
 
-# Generate all mock data
-python mock_data_generator.py
-```
+
 
 D. DEPENDENCIES
 ---------------
