@@ -374,6 +374,7 @@ H. SPECIFIC SERVICE INFORMATION
 -----------------------------
 
 **MGMT Analysis Pipeline**
+
 Integrated workflow for MGMT methylation status prediction:
 
 ***1. Data Processing:***
