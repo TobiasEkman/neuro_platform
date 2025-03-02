@@ -5,7 +5,7 @@ TECHNICAL ARCHITECTURE
 
 A comprehensive platform for neurosurgical planning, monitoring, and analysis.
 
-CORE COMPONENTS
+A. CORE COMPONENTS
 
 1. Frontend (React + TypeScript)
 - Modern SPA architecture with real-time monitoring
@@ -99,7 +99,7 @@ CORE COMPONENTS
   * Measurement calibration support
 - Technologies: Flask, PyDICOM, PyMongo
 
-9. Simulator Service (Flask)
+8. Simulator Service (Flask)
 - Neurosurgical simulation features:
   * Session management and tracking
   * Performance metrics collection
@@ -109,7 +109,19 @@ CORE COMPONENTS
   * Medication management
 - Technologies: Flask, PyMongo
 
-9. Data Storage
+9. Local Inference Service (Flask)
+- Secure local model execution:
+  * Encrypted AI models
+  * Time-limited decryption keys
+  * Secure key distribution
+  * Local inference with TensorFlow.js
+  * Data integrity and privacy
+  * Secure MongoDB integration for tracking model usage
+  * No patient data stored in the database
+  * Only metadata and usage statistics tracked
+- Technologies: Flask, TensorFlow, Cryptography
+
+10. Data Storage
 - MongoDB:
   * Patient metadata
   * Analysis results
@@ -121,7 +133,7 @@ CORE COMPONENTS
   * Segmentation masks
   * Analysis outputs
 
-API ENDPOINTS
+B. API ENDPOINTS
 
 1. Patient Management Service (port 5008)
 - /patients: Get all patients with filtering
@@ -168,7 +180,12 @@ API ENDPOINTS
   - /crisis: Handle crisis events
   - /vital-signs: Get patient vital signs
 
-DEVELOPMENT SETUP
+8. Local Inference Service (port 5004)
+- /api/inference/decrypt: Decrypt model
+- /api/inference/model/{filename}: Get decrypted model
+- /api/inference/track: Track model usage
+
+C. DEVELOPMENT SETUP
 
 1. Frontend:
 cd frontend
@@ -180,7 +197,7 @@ cd backend
 npm install
 npm run dev
 
-3. Individual Service Development
+3. Individual Service Development (Dicom parsing, Tumor analysis, ICP monitoring, etc.)
 
 Each service can be tested independently using either Docker or local development.
 
@@ -203,7 +220,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-4. Testing with Mock Data
+4. Testing with Mock Data (Probably not needed)
 
 Generate mock data for specific services:
 ```bash
@@ -219,21 +236,7 @@ python mock_data_generator.py icp
 python mock_data_generator.py
 ```
 
-5. Testing Model Decrypt Service
-
-After starting the service and generating mock data:
-```bash
-# The mock_data_generator will output a test key
-# Use this key to test the decrypt endpoint
-curl -X POST http://localhost:5004/get_decryption_key \
-  -H "Content-Type: application/json" \
-  -d '{"key":"YOUR_TEST_KEY_HERE"}'
-
-# Retrieve decrypted model
-curl http://localhost:5004/get_decrypted_model/model_decrypted.json
-```
-
-DEPENDENCIES
+D. DEPENDENCIES
 
 1. Frontend:
 - React 18.2
@@ -264,7 +267,7 @@ DEPENDENCIES
 - PyDICOM 2.2
 - PyMongo 4.3
 
-DOCKER SUPPORT
+E. DOCKER SUPPORT
 
 All components are containerized with Docker:
 - Frontend: Node 16 Alpine
@@ -274,7 +277,35 @@ All components are containerized with Docker:
 
 Docker Compose handles orchestration with proper networking and volume management.
 
-SECURITY FEATURES
+DICOM Data Management:
+- All services access DICOM files through a shared read-only volume
+- Directory structure:
+  ```
+  /data/dicom/           # Shared Docker volume
+  ├── patient_001/       # Patient directories
+  │   ├── study_1/      # Study directories
+  │   │   ├── series_1/ # Series directories
+  │   │   └── ...
+  │   └── ...
+  └── ...
+  ```
+- Docker configuration example:
+  ```yaml
+  services:
+    frontend:
+      volumes:
+        - ../dicom_data:/data/dicom:ro
+    
+    backend:
+      volumes:
+        - ../dicom_data:/data/dicom:ro
+    
+    imaging_data:
+      volumes:
+        - ../dicom_data:/data/dicom:ro
+  ```
+
+F. SECURITY FEATURES
 
 - HTTPS for all external communication
 - JWT-based authentication
@@ -282,8 +313,12 @@ SECURITY FEATURES
 - Encrypted data storage
 - Sanitized API inputs
 - Audit logging
+- Read-only volume mounting prevents accidental file modifications
+- Access control through Node.js backend
+- Validation of file paths to prevent directory traversal
+- Proper error handling for missing or invalid files
 
-PROJECT STRUCTURE
+G. PROJECT STRUCTURE
 
 neuro-platform/
 ├── frontend/                 # React application
@@ -325,47 +360,8 @@ neuro-platform/
 ├── data/                  # Mock data generation
 └── docker/                # Docker configurations
 
-SECURITY MODEL
 
-Local Inference Service
----------------------
-The platform includes a secure local inference service that ensures patient data privacy:
-
-1. Model Security:
-   - Models are stored in encrypted form
-   - Time-limited decryption keys
-   - Secure key distribution
-
-2. Data Privacy:
-   - All inference runs locally in the browser
-   - Patient data never leaves the local environment
-   - TensorFlow.js for client-side processing
-
-3. Database Integration:
-   - Secure MongoDB integration for tracking model usage
-   - No patient data stored in the database
-   - Only metadata and usage statistics tracked
-
-UI INTEGRATION
-
-Each microservice integrates with the frontend through:
-1. Shared Components
-   - Common UI elements for consistency
-   - Reusable functionality
-
-2. Service Status Monitoring
-   - Real-time service health tracking
-   - Automatic reconnection handling
-
-3. Data Flow
-   - Centralized patient context
-   - Consistent data formatting
-   - Real-time updates
-
-4. Error Handling
-   - Unified error display
-   - Graceful degradation
-   - Service fallbacks
+H. SPECIFIC SERVICE INFORMATION
 
 MGMT Analysis Pipeline
 --------------------
@@ -394,21 +390,9 @@ Integrated workflow for MGMT methylation status prediction:
    - Standardized data normalization
    - Confidence-scored predictions
 
-DEVELOPMENT SETUP
 
-Environment Setup:
-1. Copy .env.example to .env in both frontend and backend directories
-2. Configure environment variables for:
-   * API endpoints
-   * Database connections
-   * Service ports
-   * Security keys
-
-# Neuro Platform
-
-The Neuro Platform is a collection of microservices for managing patient data, imaging files, DICOM uploads, and AI-based medical analysis.
-
-## Services and Ports
+Patient and Imaging Data Management
+-----------------------------------
 
 1. **Patient Management Service (@patient_management) - Port 5008**  
    - Manages patient records in MongoDB.  
@@ -448,60 +432,57 @@ The Neuro Platform is a collection of microservices for managing patient data, i
 6. The Patient Management service updates the patient record in MongoDB, appending the newly uploaded images and creating corresponding study entries.  
 7. **User** sees confirmation on the front-end that the images are now tied to that PID.
 
-## Technologies
-- **MongoDB** for document storage  
-- **Flask** / **Express** for microservices  
-- **React/TypeScript** for front-end components  
-- **DICOM** parsing libraries (e.g., pydicom)  
-- **Docker** for containerization
+Local Inference Service
+-----------------------------------
 
-## Getting Started
-1. Ensure MongoDB is running.  
-2. Start each service (patient_management, imaging_data, etc.)  
-3. Start the front-end app.  
-4. Access the front-end to manage patients, upload DICOM files, and explore imaging data.
+After starting the service and generating mock data:
+```bash
+# The mock_data_generator will output a test key
+# Use this key to test the decrypt endpoint
+curl -X POST http://localhost:5004/get_decryption_key \
+  -H "Content-Type: application/json" \
+  -d '{"key":"YOUR_TEST_KEY_HERE"}'
 
-## Contributing
-- Fork and clone the repo.  
-- Make changes in a feature branch.  
-- Submit a pull request.  
+# Retrieve decrypted model
+curl http://localhost:5004/get_decrypted_model/model_decrypted.json
+```
 
-## License
-MIT or your appropriate license goes here.
-
-## Data Flow Diagrams
+I. DATA FLOW DIAGRAMS
 
 ### DICOM Upload Flow
+
 ```mermaid
 sequenceDiagram
     actor User
     participant FE as Frontend (DicomManager)
+    participant BE as Backend (Node)
     participant IS as Imaging Service
     participant PM as Patient Management
     participant DB as MongoDB
+    participant FS as File System
 
-    User->>FE: 1. Väljer DICOM filer
-    Note over FE: FormData med DICOM filer
-    FE->>IS: 2. POST /dicom/upload
-    Note over IS: Sparar filer i<br/>/upload_dir/{timestamp}/
-    IS->>IS: 3. Parsar DICOM metadata
-    Note over IS: Extraherar:<br/>- PatientID<br/>- StudyInstanceUID<br/>- SeriesInstanceUID
+    User->>FE: 1. Select DICOM files
+    Note over FE: FormData with DICOM files
+    FE->>BE: 2. POST /api/dicom/upload
+    BE->>IS: 3. Forward to imaging service
+    IS->>FS: 4. Save files to mounted volume
+    IS->>IS: 5. Parse DICOM metadata
+    Note over IS: Extracts:<br/>- PatientID<br/>- StudyInstanceUID<br/>- SeriesInstanceUID
     
     alt Patient exists
-        IS->>PM: 4. POST /patients/pid/{PatientID}/dicom
-        Note over IS,PM: study_data = {<br/>  images: [{<br/>    type: "MRI",<br/>    date: "2024-03-20",<br/>    dicomPath: "/path/...",<br/>    sequences: [...]<br/>  }],<br/>  studies: [{<br/>    study_instance_uid: "1.2.3...",<br/>    series: [...]<br/>  }]<br/>}
-        PM->>DB: 5. db.patients.updateOne(
-        Note over PM,DB: { id: PatientID },<br/>{ $push: { <br/>    images: { $each: study_data.images }<br/>  }}
-        PM-->>IS: 6. 200 OK
-        IS-->>FE: 7. { message: "Upload successful", studies: [...] }
-        FE-->>User: 8. Visar studieinformation
+        IS->>PM: 6. POST /patients/pid/{PatientID}/dicom
+        PM->>DB: 7. db.patients.updateOne()
+        PM-->>IS: 8. 200 OK
+        IS-->>BE: 9. { message: "Upload successful", studies: [...] }
+        BE-->>FE: 10. Forward response
+        FE-->>User: 11. Display study information
     else Patient not found
-        IS->>PM: 4. POST /patients
-        Note over IS,PM: {<br/>  id: PatientID,<br/>  images: study_data.images,<br/>  studies: study_data.studies<br/>}
-        PM->>DB: 5. db.patients.insertOne()
-        PM-->>IS: 6. 201 Created
-        IS-->>FE: 7. { message: "New patient created", studies: [...] }
-        FE-->>User: 8. Visar studieinformation
+        IS->>PM: 6. POST /patients
+        PM->>DB: 7. db.patients.insertOne()
+        PM-->>IS: 8. 201 Created
+        IS-->>BE: 9. { message: "New patient created", studies: [...] }
+        BE-->>FE: 10. Forward response
+        FE-->>User: 11. Display study information
     end
 ```
 
@@ -531,185 +512,3 @@ sequenceDiagram
         FE-->>User: Visar valideringsfel per rad
     end
 ```
-
-### API Details
-
-#### Imaging Service (@imaging_data)
-```typescript
-POST /dicom/upload
-Content-Type: multipart/form-data
-
-Response 200:
-{
-  message: "Upload successful",
-  studies: [{
-    study_instance_uid: string,
-    study_date: string,
-    series: [{
-      series_instance_uid: string,
-      modality: string,
-      series_number: number
-    }]
-  }]
-}
-```
-
-#### Patient Management (@patient_management)
-```typescript
-POST /patients/pid/{pid}/dicom
-Content-Type: application/json
-Body: {
-  images: [{
-    type: "MRI" | "CT" | "fMRI" | "DTI",
-    date: string,
-    dicomPath: string,
-    sequences: [{
-      name: string,
-      parameters?: {
-        TR: number,
-        TE: number,
-        sliceThickness: number
-      }
-    }]
-  }],
-  studies: [{
-    study_instance_uid: string,
-    study_date: string,
-    series: Array<SeriesData>
-  }]
-}
-
-POST /bulk-upload
-Content-Type: application/json
-Body: Array<{
-  name: string,
-  age: number,
-  diagnosis: string,
-  studyDate: string,
-  mgmtStatus?: "Methylated" | "Unmethylated" | "Unknown"
-}>
-```
-
-Key points:
-1. DICOM data valideras både i frontend och i services
-2. Alla API-svar innehåller detaljerade felmeddelanden
-3. Bulk-upload stödjer partiell validering
-4. Automatisk PID-generering för nya patienter
-
-DICOM MANAGEMENT
-===============
-
-The platform uses a local file-based approach for DICOM data management, leveraging Docker volumes to share data between services.
-
-## Architecture Overview
-
-1. **Frontend (React + TypeScript)**
-   - DicomManager component for browsing local DICOM studies
-   - FileUpload component for selecting local DICOM directories
-   - Uses dicomService for API communication
-   - Displays study list and metadata
-
-2. **Backend (Node.js + Express)**
-   - Acts as a proxy between frontend and imaging_data service
-   - Routes:
-     - `GET /api/dicom/image/:instanceUid` - Stream DICOM images
-     - `POST /api/dicom/parse/folder` - Parse local DICOM directory
-     - `GET /api/dicom/search` - Search DICOM studies
-     - `GET /api/dicom/stats` - Get dataset statistics
-
-3. **Imaging Data Service (Flask, port 5003)**
-   - Handles DICOM file parsing and management
-   - Reads from mounted volume (`/data/dicom`)
-   - Uses MongoDB for metadata storage
-   - Key components:
-     - FolderParser: Scans directories for DICOM files
-     - DicomdirParser: Parses DICOMDIR structures
-     - MGMTPreprocessor: Prepares MRI sequences
-
-## Data Flow
-
-```mermaid
-sequenceDiagram
-    actor User
-    participant FE as Frontend (DicomManager)
-    participant BE as Backend (Node)
-    participant IS as Imaging Service
-    participant DB as MongoDB
-    participant FS as File System
-
-    User->>FE: Select DICOM Directory
-    FE->>BE: POST /api/dicom/parse/folder
-    BE->>IS: POST /api/dicom/parse/folder
-    IS->>FS: Read files from mounted volume
-    IS->>IS: Parse DICOM metadata
-    IS->>DB: Store metadata & file paths
-    IS-->>BE: Return study information
-    BE-->>FE: Return study list
-    FE-->>User: Display available studies
-
-    User->>FE: Select study/image
-    FE->>BE: GET /api/dicom/image/:instanceUid
-    BE->>IS: GET /api/dicom/image/:instanceUid
-    IS->>FS: Read image file
-    IS-->>BE: Stream image data
-    BE-->>FE: Stream image data
-    FE-->>User: Display image
-```
-
-## Directory Structure
-
-```
-/data/dicom/           # Shared Docker volume
-├── patient_001/       # Patient directories
-│   ├── study_1/      # Study directories
-│   │   ├── series_1/ # Series directories
-│   │   └── ...
-│   └── ...
-└── ...
-```
-
-## Setup
-
-1. **Docker Configuration**
-   ```yaml
-   services:
-     frontend:
-       volumes:
-         - ../dicom_data:/data/dicom:ro
-     
-     backend:
-       volumes:
-         - ../dicom_data:/data/dicom:ro
-     
-     imaging_data:
-       volumes:
-         - ../dicom_data:/data/dicom:ro
-   ```
-
-2. **Usage**
-   - Place DICOM files in the local `dicom_data` directory
-   - Use DicomManager to select and parse directories
-   - Access images through the web interface
-
-## Key Features
-
-- **Local File Access**: All services access DICOM files through a shared read-only volume
-- **No File Upload**: Files remain on disk; only metadata is stored in MongoDB
-- **Directory Scanning**: Automatic detection and parsing of DICOM files
-- **Study Organization**: Hierarchical organization of studies/series/instances
-- **Efficient Retrieval**: Direct file access for image streaming
-
-## Security Considerations
-
-- Read-only volume mounting prevents accidental file modifications
-- Access control through Node.js backend
-- Validation of file paths to prevent directory traversal
-- Proper error handling for missing or invalid files
-
-## DICOM DATA FLOW
-
-In a production (or local) deployment using Docker, a local directory containing DICOM files is mounted into the imaging service container as a read-only volume. 
-This means the Flask code has direct on-disk access to the files without uploading them via the browser or storing them permanently in a remote location.
-When you request a DICOM study from the frontend (React), the Node.js backend proxies the request to the imaging service, which reads the DICOM file from the local mount and streams it back. 
-Only metadata (e.g., patient, study, series information) is stored in MongoDB. 
-Thus, large DICOM datasets remain on a local drive, reducing the need to transfer files over the network.
