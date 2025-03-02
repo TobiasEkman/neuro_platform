@@ -1,11 +1,17 @@
 import axios from 'axios';
 import { Patient, VitalSigns } from '../types/medical';
+import { mockPatients } from '../utils/mockData';
 
 // Använd direkt URL till backend, precis som i dicomService
 const baseUrl = 'http://localhost:4000/api';
+const USE_MOCK_DATA = false;  // Ändra till false för riktigt data
 
 export const patientService = {
   getPatients: async () => {
+    if (USE_MOCK_DATA) {
+      return mockPatients;
+    }
+    
     try {
       console.log('Fetching patients...'); // Debug log
       const response = await axios.get(`${baseUrl}/patients`);

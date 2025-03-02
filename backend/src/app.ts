@@ -6,7 +6,6 @@ import patientRoutes from './routes/patients';
 import analysisRoutes from './routes/analysis';
 import icpRoutes from './routes/icp';
 import dicomRouter from './routes/dicom';
-import healthRoutes from './routes/health';
 
 const app = express();
 
@@ -31,8 +30,8 @@ app.use(express.json());
 
 // All routes are public during development
 app.use('/api/patients', patientRoutes);
-app.use('/analysis', analysisRoutes);
-app.use('/icp', icpRoutes);
+app.use('/api/analysis', analysisRoutes);
+app.use('/api/icp', icpRoutes);
 app.use('/api/dicom', dicomRouter);
 
 // Test route

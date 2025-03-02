@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import { patientService } from '../../services/patientService';
 import { FaSort, FaSortUp, FaSortDown, FaSearch, FaUpload } from 'react-icons/fa';
 import { DicomManager } from '../DicomManager';
+import { mockPatients } from '../../utils/mockData';
 
 const Container = styled.div`
   padding: 2rem;
@@ -216,8 +217,10 @@ export const PatientExplorer: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    refreshPatients();
-  }, [refreshPatients]);
+    // För utveckling, använd mockdata
+    setPatients(mockPatients);
+    setLoading(false);
+  }, []);
 
   const handleEdit = (patient: Patient) => {
     setEditingId(patient._id);
@@ -533,10 +536,7 @@ export const PatientExplorer: React.FC = () => {
         </UploadModal>
       )}
 
-      <DicomManager 
-        patientId={selectedPatient?.id}
-        onUploadComplete={refreshPatients}
-      />
+
     </Container>
   );
 }; 

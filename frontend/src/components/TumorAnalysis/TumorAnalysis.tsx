@@ -15,12 +15,13 @@ import {
   VesselList,
   Visualization
 } from './components/styles';
+import { mockPatient, mockTumorAnalysis } from '../../utils/mockData';
 
 const TumorAnalysis: React.FC = () => {
-  const { patient, tumorAnalysis } = useDemo();
+  const { patient = mockPatient, tumorAnalysis = mockTumorAnalysis } = useDemo();
   const [analysis, setAnalysis] = useState<TumorAnalysisType | null>(null);
   const [selectedApproach, setSelectedApproach] = useState<string>('pterional');
-  const [selectedImage] = useState(patient.images[0]);
+  const [selectedImage] = useState(patient?.images?.[0]);
 
   const analyzeImage = async (imageId: string) => {
     try {
@@ -99,4 +100,4 @@ const TumorAnalysis: React.FC = () => {
   );
 };
 
-export default TumorAnalysis; 
+export default TumorAnalysis;
