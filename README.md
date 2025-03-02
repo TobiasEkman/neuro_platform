@@ -373,37 +373,37 @@ neuro-platform/
 H. SPECIFIC SERVICE INFORMATION
 -----------------------------
 
-**MGMT Analysis Pipeline**
+**1. MGMT Analysis Pipeline**
 
 Integrated workflow for MGMT methylation status prediction:
 
-***1. Data Processing:***
+***Data Processing:***
    - Validation of required MRI sequences (T1, T1c, T2, FLAIR)
    - Automated sequence type identification
    - Standardized preprocessing pipeline
 
-***2. Model Architecture:***
+***Model Architecture:***
    - Deep learning model for MGMT status prediction
    - Multi-sequence input (4 channel)
    - Binary classification output
    - Confidence scoring
 
-***3. Integration Points:***
+***Integration Points:***
    - Preprocessing in imaging_data service
    - Model training in model_training service
    - Inference endpoints in tumor_analysis service
    - Sequence validation and normalization
 
-***4. Workflow:***
+***Workflow:***
    - Study validation → Sequence preprocessing → MGMT prediction
    - Automated sequence identification
    - Standardized data normalization
    - Confidence-scored predictions
 
 
-**Patient and Imaging Data Management**
+**2. Patient and Imaging Data Management**
 
-***1. Patient Management Service (@patient_management) - Port 5008***  
+***Patient Management Service (@patient_management) - Port 5008***  
    - Manages patient records in MongoDB.  
    - Main routes:
      - `GET /patients` – Retrieve patients (with optional filtering).  
@@ -415,7 +415,7 @@ Integrated workflow for MGMT methylation status prediction:
      - `DELETE /patients/<patient_id>` – Delete by MongoDB ObjectId.  
      - `POST /patients/pid/<pid>/dicom` – Add DICOM data for an existing PID.
 
-***2. Imaging Data Service (@imaging_data) - Port 5003***  
+***Imaging Data Service (@imaging_data) - Port 5003***  
    - Handles DICOM file uploads and parsing.  
    - Main routes:
      - `POST /dicom/upload` – Upload DICOM files.  
@@ -424,7 +424,7 @@ Integrated workflow for MGMT methylation status prediction:
        3. Parses them into `study_data`.  
        4. Calls `@patient_management /patients/pid/<pid>/dicom` to attach new images/studies to that patient's record.
 
-***3. Front-End***  
+***Front-End***  
    - DicomManager (@DicomManager)
      - Components like `DicomUploader.tsx` handle file selection, validate the PID (by calling `/patients/pid/<pid>`), then upload to `@imaging_data`.  
      - If upload is successful, the imaging service updates the patient in `@patient_management`.
@@ -441,7 +441,7 @@ Example DICOM Upload Flow
 6. The Patient Management service updates the patient record in MongoDB, appending the newly uploaded images and creating corresponding study entries.  
 7. User sees confirmation on the front-end that the images are now tied to that PID.
 
-**Local Inference Service**
+**3. Local Inference Service**
 
 After starting the service and generating mock data:
 ```bash
@@ -457,7 +457,7 @@ curl http://localhost:5004/get_decrypted_model/model_decrypted.json
 
 I. DATA FLOW DIAGRAMS
 ---------------------
-**DICOM Upload Flow**
+**1. DICOM Upload Flow**
 
 ```mermaid
 sequenceDiagram
@@ -494,7 +494,7 @@ sequenceDiagram
     end
 ```
 
-**Patient Data Upload Flow**
+**2. Patient Data Upload Flow**
 ```mermaid
 sequenceDiagram
     actor User
