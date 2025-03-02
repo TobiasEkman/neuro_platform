@@ -502,21 +502,21 @@ sequenceDiagram
     participant PM as Patient Management
     participant DB as MongoDB
 
-    User->>FE: 1. Väljer CSV/Excel fil
-    Note over FE: Validerar format:<br/>- Required fields<br/>- Data types<br/>- Date formats
+    User->>FE: 1. Choose CSV/Excel file
+    Note over FE: Validates format:<br/>- Required fields<br/>- Data types<br/>- Date formats
     FE->>PM: 2. POST /bulk-upload
     Note over FE,PM: [<br/>  {<br/>    name: "John Doe",<br/>    age: 45,<br/>    diagnosis: "GBM",<br/>    studyDate: "2024-03-20"<br/>  },<br/>  ...<br/>]
-    PM->>PM: 3. Validerar varje patient
-    Note over PM: Kontrollerar:<br/>- Required fields<br/>- Age range<br/>- Valid diagnosis<br/>- Date format
+    PM->>PM: 3. Validates each patient
+    Note over PM: Checks:<br/>- Required fields<br/>- Age range<br/>- Valid diagnosis<br/>- Date format
     
     alt Valid data
         PM->>DB: 4. db.patients.insertMany()
         PM-->>FE: 5. { 
         Note over PM,FE: message: "Success",<br/>patient_ids: ["PID_0001", ...]<br/>}
-        FE-->>User: 6. Visar bekräftelse + nya PIDs
+        FE-->>User: 6. Displays confirmation + new PIDs
     else Invalid data
         PM-->>FE: Error: { 
         Note over PM,FE: errors: {<br/>  0: ["Invalid age"],<br/>  2: ["Missing diagnosis"]<br/>}<br/>}
-        FE-->>User: Visar valideringsfel per rad
+        FE-->>User: Displays validation errors per row
     end
 ```
