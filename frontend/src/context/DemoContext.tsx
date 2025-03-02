@@ -1,23 +1,43 @@
-import React, { createContext, useContext, useState } from 'react';
-import type { DemoContextType } from './types/demo';
-import { generateDemoData } from '../utils/demoData';
+import React, { createContext, useState, useContext } from 'react';
+import { demoPatient, demoICPReadings, demoTumorAnalysis } from '../utils/demoData';
+import { DemoContextType } from '../types/demo';
 
-const DemoContext = createContext<DemoContextType | null>(null);
+const DemoContext = createContext<DemoContextType>({
+  isDemoMode: false,
+  toggleDemoMode: () => {},
+  demoData: {
+    patient: demoPatient,
+    icpReadings: demoICPReadings,
+    tumorAnalysis: demoTumorAnalysis
+  }
+});
 
 export const DemoProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [demoData] = useState<DemoContextType>(generateDemoData());
+  const [isDemoMode, setIsDemoMode] = useState(false);
+
+  const toggleDemoMode = () => {
+    setIsDemoMode(!isDemoMode);
+  };
 
   return (
-    <DemoContext.Provider value={demoData}>
+    <DemoContext.Provider 
+      value={{
+        isDemoMode,
+        toggleDemoMode,
+        demoData: {
+          patient: demoPatient,
+          icpReadings: demoICPReadings,
+          tumorAnalysis: demoTumorAnalysis
+        }
+      }}
+    >
       {children}
     </DemoContext.Provider>
   );
 };
 
-export const useDemo = (): DemoContextType => {
-  const context = useContext(DemoContext);
-  if (!context) {
-    throw new Error('useDemo must be used within a DemoProvider');
-  }
-  return context;
-}; 
+export const useDemo = () => useContext(DemoContext);
+
+export const useDemoContext = useDemo;
+
+export default DemoContext; 

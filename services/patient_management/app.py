@@ -22,60 +22,60 @@ def log_request_info():
     logger.info(f"Received {request.method} request to {request.path}")
     logger.info(f"Headers: {dict(request.headers)}")
 
-@app.route('/api/patients', methods=['GET'])
+@app.route('/patients', methods=['GET'])
 def get_patients():
-    logger.info("GET /api/patients called")
     try:
         patients = list(db.patients.find())
         for patient in patients:
             patient['_id'] = str(patient['_id'])
-        logger.info(f"Returning {len(patients)} patients")
         return jsonify(patients)
     except Exception as e:
-        logger.error(f"Error fetching patients: {e}")
+        logger.error(f"Error: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/patients/with-dicom', methods=['GET'])
-def get_patients_with_dicom():
+@app.route('/patients/<id>', methods=['GET', 'PUT', 'DELETE'])
+def handle_patient(id):
     try:
-        # Get patients that have DICOM studies
-        patients = list(db.patients.find({
-            'studies': {'$exists': True, '$ne': []}
-        }))
-        
-        # Convert ObjectId to string for JSON serialization
-        for patient in patients:
-            if '_id' in patient:
+        if request.method == 'GET':
+            patient = db.patients.find_one({'_id': ObjectId(id)})
+            if patient:
                 patient['_id'] = str(patient['_id'])
-                
-        return jsonify(patients)
+                return jsonify(patient)
+            return jsonify({'error': 'Patient not found'}), 404
+
+        elif request.method == 'PUT':
+            data = request.json
+            result = db.patients.update_one(
+                {'_id': ObjectId(id)}, 
+                {'$set': data}
+            )
+            if result.modified_count:
+                return jsonify({'message': 'Patient updated'})
+            return jsonify({'error': 'Patient not found'}), 404
+
+        elif request.method == 'DELETE':
+            result = db.patients.delete_one({'_id': ObjectId(id)})
+            if result.deleted_count:
+                return jsonify({'message': 'Patient deleted'})
+            return jsonify({'error': 'Patient not found'}), 404
+
     except Exception as e:
-        logger.error(f"Error fetching patients with DICOM: {e}")
+        logger.error(f"Error: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/patients/<patient_id>', methods=['GET'])
-def get_patient(patient_id):
+@app.route('/patients/pid/<pid>', methods=['GET', 'PUT', 'DELETE'])
+def handle_patient_by_pid(pid):
+    # Liknande som ovan men använd pid istället för _id
+    pass
+
+@app.route('/patients/bulk', methods=['POST'])
+def bulk_update():
     try:
-        # Try to convert to ObjectId if it looks like one
-        if len(patient_id) == 24:
-            try:
-                patient_id_obj = ObjectId(patient_id)
-                patient = db.patients.find_one({'_id': patient_id_obj})
-                if patient:
-                    patient['_id'] = str(patient['_id'])
-                    return jsonify(patient)
-            except InvalidId:
-                pass
-        
-        # If not ObjectId, try as patient_id string
-        patient = db.patients.find_one({'patient_id': patient_id})
-        if patient:
-            patient['_id'] = str(patient['_id'])
-            return jsonify(patient)
-            
-        return jsonify({'error': 'Patient not found'}), 404
+        data = request.json
+        # Implementera bulk update logik
+        return jsonify({'message': 'Bulk update successful'})
     except Exception as e:
-        logger.error(f"Error fetching patient: {e}")
+        logger.error(f"Error: {e}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':

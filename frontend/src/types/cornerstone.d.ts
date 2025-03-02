@@ -1,13 +1,15 @@
 import { Types } from '@cornerstonejs/core';
+import { VolumeViewport } from '@cornerstonejs/core';
 
 declare module '@cornerstonejs/core' {
   export class RenderingEngine {
     constructor(id: string);
     destroy(): void;
-    setViewports(viewportInputArray: any[]): void;
+    setViewports(viewportInputs: any[]): void;
     render(): void;
-    getViewport(id: string): StackViewport;
-    enableElement(viewportInput: any): void;
+    getViewport(viewportId: string): VolumeViewport;
+    enableElement(viewportInput: ViewportInput): Promise<EnabledElement>;
+    renderViewports(viewportIds: string[]): void;
   }
 
   export class StackViewport {
@@ -15,7 +17,14 @@ declare module '@cornerstonejs/core' {
     setCamera: (options: { reset?: boolean }) => void;
   }
 
-  export class VolumeViewport {}
+  export class VolumeViewport {
+    setVolumes(volumes: Array<{
+      volumeId: string;
+      callback?: (props: { volumeActor: any }) => void;
+    }>): Promise<void>;
+    setSliceIndex(index: number): void;
+    render(): void;
+  }
 
   export function enable(element: HTMLElement): Promise<void>;
   export function disable(element: HTMLElement): void;
@@ -27,22 +36,30 @@ declare module '@cornerstonejs/core' {
   export function displayVolume(element: HTMLElement, volume: any, options: any): Promise<void>;
 
   export const cache: {
-    getVolume(volumeId: string): Promise<any>;
+    getVolume(volumeId: string): {
+      dimensions: number[];
+    };
   };
 
   export const volumeLoader: {
-    createAndCacheVolume(volumeId: string, options: any): Promise<void>;
+    createAndCacheVolume(volumeId: string, options: {
+      imageIds: string[];
+      dimensions: number[];
+      spacing: number[];
+      orientation: number[];
+      voxelData: ArrayBuffer;
+    }): Promise<any>;
   };
 
   export const imageLoader: {
     createAndCacheLocalImage(imageId: string, arrayBuffer: ArrayBuffer): Promise<void>;
   };
 
-  export const setVolumesForViewports: (
+  export function setVolumesForViewports(
     renderingEngine: RenderingEngine,
     volumes: Array<{ volumeId: string }>,
     viewportIds: string[]
-  ) => Promise<void>;
+  ): Promise<void>;
 
   export const utilities: any;
   export const init: () => Promise<void>;
@@ -61,12 +78,12 @@ declare module '@cornerstonejs/core' {
   }
 
   export interface ViewportInput {
-    element: HTMLDivElement;
+    element: HTMLDivElement | HTMLCanvasElement;
     viewportId: string;
-    type: 'stack' | 'volume';
+    type: string;
     defaultOptions?: {
-      background?: [number, number, number];
-      orientation?: 'axial' | 'sagittal' | 'coronal';
+      orientation?: any;
+      background?: number[];
     };
   }
 
@@ -82,6 +99,23 @@ declare module '@cornerstonejs/core' {
     SliceThickness?: number;
     SliceLocation?: number;
     PixelData?: Uint8Array | Int16Array;
+  }
+
+  export interface EnabledElement {
+    viewport: VolumeViewport;
+  }
+
+  export namespace Enums {
+    enum ViewportType {
+      ORTHOGRAPHIC = 'ORTHOGRAPHIC',
+      PERSPECTIVE = 'PERSPECTIVE'
+    }
+    
+    enum OrientationAxis {
+      AXIAL = 'AXIAL',
+      SAGITTAL = 'SAGITTAL',
+      CORONAL = 'CORONAL'
+    }
   }
 }
 

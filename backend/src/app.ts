@@ -5,7 +5,7 @@ import { errorHandler } from './middleware/errorHandler';
 import patientRoutes from './routes/patients';
 import analysisRoutes from './routes/analysis';
 import icpRoutes from './routes/icp';
-import dicomRoutes from './routes/dicom';
+import dicomRouter from './routes/dicom';
 import healthRoutes from './routes/health';
 
 const app = express();
@@ -30,10 +30,10 @@ app.use(cors({
 app.use(express.json());
 
 // All routes are public during development
-app.use('/patients', patientRoutes);
+app.use('/api/patients', patientRoutes);
 app.use('/analysis', analysisRoutes);
 app.use('/icp', icpRoutes);
-app.use('/dicom', dicomRoutes);
+app.use('/api/dicom', dicomRouter);
 
 // Test route
 app.get('/api/test', (req, res) => {

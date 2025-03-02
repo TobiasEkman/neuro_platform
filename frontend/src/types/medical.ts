@@ -2,9 +2,11 @@ export interface Patient {
   _id: string;
   patient_id: string;  // PID
   name: string;
-  dob: string | null;  // YYYY-MM-DD format
-  sex: string;
+  age: number;
+  gender: string;
   diagnosis: string;
+  admission_date?: string;
+  discharge_date?: string;
   studyDate?: Date;
   images?: ImageStudy[];
   studies?: string[];  // Array of study UIDs
@@ -83,18 +85,21 @@ export interface TumorAnalysis {
 
 export interface DicomInstance {
   sop_instance_uid: string;
-  file_path: string;
   instance_number: number;
+  file_path: string;
+  rows?: number;
+  columns?: number;
+  pixel_spacing?: string;
 }
 
 export interface DicomSeries {
   series_instance_uid: string;
-  series_uid?: string;
   series_number: string;
   description: string;
   modality: string;
   instances: DicomInstance[];
-  filePath: string;
+  series_uid: string;  // Samma som series_instance_uid
+  filePath: string;    // Sökväg till serien
 }
 
 export interface DicomImage {
@@ -113,17 +118,31 @@ export interface DicomImage {
 
 export interface DicomStudy {
   study_instance_uid: string;
-  study_uid?: string;
-  description: string;
   study_date: string;
-  patient_id: string;
+  description: string;
+  modality?: string;
   series: DicomSeries[];
+  _id: string;
+  patient_id: string;
+  modalities: string[];  // Array av modaliteter
+  num_series: number;    // Antal serier
+  num_instances: number; // Antal instanser
+}
+
+export interface SearchResult {
+  type: 'patient' | 'study' | 'series';
+  id: string;
+  text: string;
+  patientId?: string;
+  studyId?: string;
+  studyData?: DicomStudy;
 }
 
 export interface DicomImportResult {
   message: string;
   studies?: DicomStudy[];
   error?: string;
+  path?: string;
 }
 
 // Konverteringsfunktion om det behövs
@@ -139,14 +158,22 @@ export const convertVitalSigns = (vitals: VitalSigns): VitalSignsShort => ({
 export type Dimensions = [number, number, number];
 
 export interface VolumeData {
-  volume: number[];
-  dimensions: Dimensions;
+  volume: Float32Array | number[];
+  dimensions: {
+    width: number;
+    height: number;
+    depth: number;
+  };
   spacing?: [number, number, number];
-  windowCenter?: number;
-  windowWidth?: number;
 }
 
 export interface WindowLevel {
+  windowCenter: number;
+  windowWidth: number;
+}
+
+export interface WindowPreset {
+  name: string;
   windowCenter: number;
   windowWidth: number;
 } 

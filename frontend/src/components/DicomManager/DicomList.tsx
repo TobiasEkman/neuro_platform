@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
-import { DicomStudy } from '../../types/dicom';
+import { DicomStudy } from '../../types/medical';
 
 interface DicomListProps {
   studies: DicomStudy[];

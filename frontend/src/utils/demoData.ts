@@ -1,51 +1,29 @@
 import { Patient, ICPReading, TumorAnalysis } from '../types/medical';
 
-export const generateDemoData = () => {
-  const demoPatient: Patient = {
-    _id: 'DEMO-001',
-    patient_id: 'PID_0001',
-    name: 'John Doe',
-    age: 45,
-    diagnosis: 'Right frontal glioblastoma with mass effect',
-    studyDate: new Date(),
-    images: [
-      {
-        id: 'IMG-001',
-        type: 'MRI',
-        date: new Date(),
-        dicomPath: '/demo/mri_t1.dcm',
-        sequences: [
-          {
-            name: 'T1 with contrast',
-            parameters: {
-              TR: 500,
-              TE: 20,
-              sliceThickness: 1.5
-            }
-          }
-        ]
-      }
-    ]
-  };
+export const demoPatient: Patient = {
+  _id: 'demo_id',
+  patient_id: 'PID_DEMO',
+  name: 'Demo Patient',
+  age: 45,
+  gender: 'M',
+  diagnosis: 'Glioblastoma',
+  admission_date: '2024-03-20',
+  studies: []
+};
 
-  const demoICPReadings: ICPReading[] = Array.from({ length: 100 }, (_, i) => ({
-    timestamp: new Date(Date.now() - (100 - i) * 60000),
-    value: Math.sin(i / 10) * 3 + 15 + Math.random() * 2,
+export const demoICPReadings: ICPReading[] = [
+  {
+    timestamp: new Date(),
+    value: 15,
     location: 'Right frontal',
-    waveform: Array.from({ length: 10 }, () => Math.random() * 5 + 10)
-  }));
+    waveform: [14, 15, 16, 15, 14, 15, 16, 15, 14, 15]
+  }
+];
 
-  const demoTumorAnalysis: TumorAnalysis = {
-    volumeCc: 45.3,
-    location: 'Right frontal lobe',
-    eloquentAreas: ['Motor cortex', 'Speech area'],
-    vesselInvolvement: ['M3 branch of MCA'],
-    predictedResectionRate: 85
-  };
-
-  return {
-    patient: demoPatient,
-    icpReadings: demoICPReadings,
-    tumorAnalysis: demoTumorAnalysis
-  };
+export const demoTumorAnalysis: TumorAnalysis = {
+  volumeCc: 45.2,
+  location: 'Right temporal',
+  eloquentAreas: ['Motor cortex', 'Speech area'],
+  vesselInvolvement: ['MCA'],
+  predictedResectionRate: 0.85
 }; 

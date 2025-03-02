@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { TumorAnalysis as TumorAnalysisType } from '../../types/medical';
 import ThreeJSViewer from './components/ThreeJSViewer';
-import { useDemo } from '../../context/DemoContext';
+import { useDemoContext as useDemo } from '../../context/DemoContext';
 import {
   Container,
   Title,

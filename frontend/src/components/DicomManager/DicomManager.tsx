@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { DicomList } from './DicomList';
-import { DicomStudy, DicomImportResult } from '../../types/dicom';
+import { 
+  DicomStudy, 
+  DicomImportResult 
+} from '../../types/medical';  // Uppdatera import path
 import dicomService from '../../services/dicomService';
 import { usePatient } from '../../hooks/usePatient';
 import { UploadSection } from './UploadSection';
@@ -245,14 +248,18 @@ const DicomManager: React.FC<DicomManagerProps> = ({
     const fetchStudies = async () => {
       try {
         if (patientId) {
-          const fetchedStudies = await dicomService.searchStudies(`patient:${patientId}`);
-          console.log('Fetched studies:', fetchedStudies);
-          setStudies(fetchedStudies);
+          const results = await dicomService.searchStudies(`patient:${patientId}`);
+          // Konvertera sökresultat till DicomStudy[]
+          const studyResults = results
+            .filter(result => result.type === 'study' && result.studyData)
+            .map(result => convertStudy(result.studyData as DicomStudy));
+          setStudies(studyResults);
         } else {
-          // If no patientId, fetch all studies
-          const fetchedStudies = await dicomService.searchStudies('');
-          console.log('Fetched studies:', fetchedStudies);
-          setStudies(fetchedStudies);
+          const results = await dicomService.searchStudies('');
+          const studyResults = results
+            .filter(result => result.type === 'study' && result.studyData)
+            .map(result => convertStudy(result.studyData as DicomStudy));
+          setStudies(studyResults);
         }
       } catch (error) {
         console.error('Failed to fetch studies:', error);
@@ -289,13 +296,19 @@ const DicomManager: React.FC<DicomManagerProps> = ({
       }
       
       // Refresh studies list
-      const updatedStudies = await dicomService.searchStudies(
+      const results = await dicomService.searchStudies(
         patientId ? `patient:${patientId}` : ''
       );
-      setStudies(updatedStudies);
+      const studyResults = results
+        .filter(result => result.type === 'study' && result.studyData)
+        .map(result => convertStudy(result.studyData as DicomStudy));
+      setStudies(studyResults);
 
       if (onUploadComplete) {
-        onUploadComplete(result);
+        onUploadComplete({
+          ...result,
+          studies: result.studies || []  // Defaulta till tom array om undefined
+        });
       }
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to process directory');
@@ -307,6 +320,34 @@ const DicomManager: React.FC<DicomManagerProps> = ({
   const handleStudySelect = useCallback((study: DicomStudy) => {
     setSelectedStudyId(study.study_instance_uid);
   }, []);
+
+  const handleSearch = async (query: string) => {
+    try {
+      const results = await dicomService.searchStudies(query);
+      // Filtrera och konvertera endast study-resultat
+      const studyResults = results
+        .filter(result => result.type === 'study' && result.studyData)
+        .map(result => convertStudy(result.studyData as DicomStudy));
+      setStudies(studyResults);
+    } catch (error) {
+      console.error('Search error:', error);
+    }
+  };
+
+  const convertStudy = (study: DicomStudy): DicomStudy => {
+    return {
+      ...study,
+      _id: study.study_instance_uid,
+      modalities: study.modality ? [study.modality] : [],
+      num_series: study.series.length,
+      num_instances: study.series.reduce((sum, s) => sum + s.instances.length, 0),
+      series: study.series.map(s => ({
+        ...s,
+        series_uid: s.series_instance_uid,  // Mappa series_instance_uid till series_uid
+        filePath: s.instances[0]?.file_path || ''  // Använd första instansens sökväg
+      }))
+    };
+  };
 
   return (
     <DicomManagerContainer>

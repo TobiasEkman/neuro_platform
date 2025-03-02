@@ -1,10 +1,3 @@
-export interface Patient {
-  id: string;
-  name: string;
-  age: number;
-  diagnosis: string;
-}
-
 export interface ImageStudy {
   id: string;
   type: 'MRI' | 'CT' | 'fMRI' | 'DTI';
@@ -75,15 +68,7 @@ export interface PostopPlan {
   medications: Medication[];
 }
 
-export interface DemoContextType {
-  isDemoMode: boolean;
-  toggleDemoMode: () => void;
-  demoData: {
-    patient: Patient;
-    icpReadings: ICPReading[];
-    tumorAnalysis: TumorAnalysis;
-  };
-}
+
 
 export enum SimulationPhase {
   PREOP = 'PREOP',

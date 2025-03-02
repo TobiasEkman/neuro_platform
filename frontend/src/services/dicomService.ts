@@ -1,15 +1,71 @@
 import axios, { AxiosError } from 'axios';
-import { DicomStudy, DicomSeries, DicomImage, DicomImportResult, VolumeData } from '../types/dicom';
+import { 
+  DicomStudy, 
+  DicomSeries, 
+  DicomImage, 
+  DicomImportResult, 
+  VolumeData,
+  WindowPreset,
+  SearchResult
+} from '../types/medical';
 import { logger } from '../utils/logger';
-import { convertStudy } from '../types/dicom';
 
-// Configure axios defaults
-axios.defaults.baseURL = '/api';
+// Ta bort import från dicom.ts och använd convertStudy direkt här
+const convertStudy = (study: DicomStudy): DicomStudy => {
+  if (!study) {
+    console.error('Received undefined study in convertStudy');
+    return {
+      study_instance_uid: '',
+      study_date: '',
+      description: 'Invalid Study',
+      series: [],
+      _id: '',
+      patient_id: '',
+      modalities: [],
+      num_series: 0,
+      num_instances: 0
+    };
+  }
 
-const BACKEND_URL = 'http://localhost:4000';
+  return {
+    ...study,
+    _id: study.study_instance_uid,
+    modalities: study.modality ? [study.modality] : [],
+    num_series: study.series?.length || 0,
+    num_instances: study.series?.reduce((sum, s) => sum + (s.instances?.length || 0), 0) || 0,
+    series: study.series?.map(s => ({
+      ...s,
+      series_uid: s.series_instance_uid,
+      filePath: s.instances?.[0]?.file_path || ''
+    })) || []
+  };
+};
 
-class DicomService {
-  private baseUrl = '/dicom';
+// Lägg till DicomMetadata interface
+export interface DicomMetadata {
+  patientId: string;
+  studyInstanceUID: string;
+  seriesInstanceUID: string;
+  sopInstanceUID?: string;
+  modality: string;
+  studyDate?: string;
+  seriesNumber?: number;
+  seriesDescription?: string;
+  filePath: string;
+  metadata?: Record<string, any>;
+}
+
+interface ImageResponse {
+  pixelData: number[][];
+  rows: number;
+  columns: number;
+  windowCenter: number;
+  windowWidth: number;
+}
+
+export class DicomService {
+  // Använd direkt URL till backend
+  private baseUrl = 'http://localhost:4000/api/dicom';
 
   // Main folder parsing method
   async parseDirectory(
@@ -20,7 +76,7 @@ class DicomService {
       logger.debug(`Parsing directory: ${directoryPath}`);
       
       const response = await axios.post(
-        `${BACKEND_URL}/dicom/parse/folder`,
+        `${this.baseUrl}/parse/folder`,
         { folderPath: directoryPath },
         {
           responseType: 'text',
@@ -62,103 +118,113 @@ class DicomService {
   }
 
   // Get image data for a specific instance
-  async getImageData(filePath: string): Promise<ArrayBuffer> {
+  async getImageData(path: string): Promise<Response> {
     try {
-      // Use the path as-is, let the backend handle both absolute and relative paths
-      const encodedPath = encodeURIComponent(filePath.replace(/\\/g, '/'));
+      const encodedPath = encodeURIComponent(path);
+      const url = `${this.baseUrl}/image?path=${encodedPath}`;
+
+      const response = await fetch(url);
       
-      console.log('[DicomService] Requesting image with path:', filePath);
-
-      const response = await axios.get(
-        `${this.baseUrl}/image`,
-        {
-          params: { path: encodedPath },
-          responseType: 'arraybuffer'
-        }
-      );
-
-      // Add debug logging
-      console.log('[DicomService] Got response:', {
-        status: response.status,
-        headers: response.headers,
-        dataType: response.data.constructor.name,
-        dataLength: response.data.byteLength
+      // Debug: Kolla exakt vad vi får
+      const clone = response.clone();
+      const rawData = await clone.text();
+      console.log('[dicomService] Raw response:', rawData.substring(0, 200)); // Första 200 tecken
+      
+      const data = JSON.parse(rawData);
+      console.log('[dicomService] Parsed data structure:', {
+        keys: Object.keys(data),
+        dataType: typeof data,
+        hasPixelData: 'pixelData' in data,
+        hasDimensions: 'rows' in data && 'columns' in data
       });
 
-      return response.data;
+      return new Response(rawData, {
+        headers: { 'Content-Type': 'application/json' }
+      });
+
     } catch (error) {
-      console.error('Error getting image data:', error);
-      throw this.handleError(error, 'Failed to get image data');
+      console.error('[dicomService] Error:', error);
+      throw error;
     }
   }
 
   // Search studies with optional patient filter
-  async searchStudies(query: string): Promise<DicomStudy[]> {
+  async searchStudies(query: string): Promise<SearchResult[]> {
     try {
-      const response = await axios.get(`${BACKEND_URL}/dicom/search`, {
-        params: { q: query }
+      const response = await axios.get(`${this.baseUrl}/search?q=${encodeURIComponent(query)}`);
+      // Konvertera sökresultat till rätt format om det är en studie
+      return response.data.map((result: SearchResult) => {
+        if (result.type === 'study' && result.studyData) {
+          return {
+            ...result,
+            studyData: convertStudy(result.studyData)
+          };
+        }
+        return result;
       });
-      
-      console.log('Raw study data:', response.data);
-      
-      // Convert the data to match our types
-      const studies: DicomStudy[] = response.data.map(convertStudy);
-      
-      console.log('Formatted studies:', studies);
-      return studies;
     } catch (error) {
       throw this.handleError(error, 'Failed to search studies');
     }
   }
 
   // Get series metadata
-  async getSeriesMetadata(seriesInstanceUid: string) {
-    try {
-      const response = await axios.get(
-        `${BACKEND_URL}/dicom/series/${seriesInstanceUid}/metadata`
-      );
-      return response.data;
-    } catch (error) {
-      throw this.handleError(error, 'Failed to get series metadata');
-    }
+  async getSeriesMetadata(seriesId: string): Promise<DicomMetadata> {
+    const response = await axios.get(`${this.baseUrl}/metadata/${seriesId}`);
+    return response.data;
   }
 
   // Get volume data for MPR
-  async getVolumeData(seriesInstanceUid: string): Promise<VolumeData> {
+  async getVolumeData(seriesId: string): Promise<{
+    buffer: ArrayBuffer;
+    dimensions: {
+      width: number;
+      height: number;
+      depth: number;
+    };
+  }> {
     try {
-      const response = await axios.get(
-        `${BACKEND_URL}/dicom/series/${seriesInstanceUid}/volume`,
-        { responseType: 'arraybuffer' }
-      );
+      const response = await axios.get(`${this.baseUrl}/volume/${seriesId}`);
       
-      const dimensions = response.headers['x-volume-dimensions']
-        ?.split(',')
-        .map(Number) as [number, number, number];
-        
+      // Konvertera JSON-data till Float32Array
+      const data = response.data;
+      const volumeArray = new Float32Array(data.volume);
+      
       return {
-        volume: new Float32Array(response.data),
-        dimensions: dimensions || [0, 0, 0]
+        buffer: volumeArray.buffer,
+        dimensions: data.dimensions
       };
     } catch (error) {
-      throw this.handleError(error, 'Failed to get volume data');
+      console.error('Error fetching volume data:', error);
+      throw this.handleError(error, 'Failed to fetch volume data');
     }
   }
 
   // Get patients with DICOM studies
-  async getPatientsWithDicom() {
+  async getPatients(options: { withDicom?: boolean } = {}) {
     try {
-      const response = await axios.get(`${BACKEND_URL}/patients/with-dicom`);
-      
-      response.data.forEach((patient: any) => {
-        logger.debug('Patient ID check:', {
-          id: patient.patient_id,
-          hasValidFormat: /^PID_\d{4}$/.test(patient.patient_id)
-        });
+      // Hämta alla studies
+      const response = await axios.get(`${this.baseUrl}/studies`);
+      const studies = response.data;
+
+      // Extrahera unika patienter från studies
+      const patientMap = new Map();
+      studies.forEach((study: any) => {
+        if (!patientMap.has(study.patient_id)) {
+          patientMap.set(study.patient_id, {
+            _id: study._id,
+            patient_id: study.patient_id,
+            name: study.patient_name || 'Unknown',
+            studies: [study.study_instance_uid]
+          });
+        } else {
+          // Lägg till study ID till existerande patient
+          patientMap.get(study.patient_id).studies.push(study.study_instance_uid);
+        }
       });
-      
-      return response.data;
+
+      return Array.from(patientMap.values());
     } catch (error) {
-      throw this.handleError(error, 'Failed to get patients with DICOM data');
+      return this.handleError(error);
     }
   }
 
@@ -199,7 +265,84 @@ class DicomService {
     }
   }
 
-  private handleError(error: unknown, defaultMessage: string): Error {
+  async getWindowPresets(): Promise<WindowPreset[]> {
+    try {
+      const response = await axios.get(`${this.baseUrl}/window-presets`);
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error, 'Failed to fetch window presets');
+    }
+  }
+
+  async getSeriesForStudy(studyId: string): Promise<DicomSeries[]> {
+    try {
+      const response = await axios.get(`${this.baseUrl}/series`, {
+        params: { studyId }
+      });
+      return response.data.map((series: any) => ({
+        id: series.series_instance_uid,
+        description: series.description || 'Untitled Series',
+        modality: series.modality,
+        numImages: series.number_of_images,
+        studyInstanceUID: series.study_instance_uid,
+        seriesInstanceUID: series.series_instance_uid,
+        metadata: series.metadata
+      }));
+    } catch (error) {
+      throw this.handleError(error, 'Failed to fetch series for study');
+    }
+  }
+
+  async getStudiesForPatient(patientId: string): Promise<DicomStudy[]> {
+    try {
+      const response = await axios.get(`${this.baseUrl}/studies`, {
+        params: { patientId }
+      });
+
+      // Validera och konvertera data
+      if (!response.data || !Array.isArray(response.data)) {
+        console.error('Invalid response data:', response.data);
+        return [];
+      }
+
+      return response.data
+        .filter(study => study && typeof study === 'object')
+        .map(study => convertStudy(study));
+    } catch (error) {
+      console.error('Failed to fetch studies:', error);
+      throw this.handleError(error, 'Failed to fetch studies');
+    }
+  }
+
+  async getStudy(studyId: string): Promise<DicomStudy> {
+    try {
+      const response = await axios.get(`${this.baseUrl}/study/${studyId}`);
+      return convertStudy(response.data);
+    } catch (error) {
+      throw this.handleError(error, 'Failed to fetch study');
+    }
+  }
+
+  // Lägg till test-metod
+  async testRouting(): Promise<void> {
+    try {
+      console.log('[DicomService] Starting routing test...');
+      console.log('[DicomService] Base URL:', this.baseUrl);
+      
+      // Test health endpoint
+      console.log('[DicomService] Testing health endpoint...');
+      const healthUrl = `${this.baseUrl}/health`;
+      console.log('[DicomService] Health URL:', healthUrl);
+      
+      const healthResponse = await axios.get(healthUrl);
+      console.log('[DicomService] Health check response:', healthResponse.data);
+    } catch (error) {
+      console.error('[DicomService] Routing test failed:', error);
+      throw this.handleError(error, 'Routing test failed');
+    }
+  }
+
+  private handleError(error: unknown, defaultMessage = 'An error occurred'): Error {
     if (axios.isAxiosError(error)) {
       const axiosError = error as AxiosError;
       return new Error(

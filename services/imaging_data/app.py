@@ -18,9 +18,10 @@ import json
 from bson import json_util
 from bson.objectid import ObjectId
 from pathlib import Path
+from datetime import datetime
 
-# Set logging level to DEBUG
-logging.basicConfig(level=logging.DEBUG)
+# Set logging level to INFO
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # At the top of your app.py, after the imports
@@ -127,15 +128,12 @@ def parse_folder():
 def search_studies():
     try:
         query = request.args.get('q', '')
-        logger.info(f'Searching with query: {query}')
+        logger.info(f"Searching with query: {query}")
         
         # Build MongoDB query
         mongo_query = {}
-        
-        # Parse query format "key:value"
         if query:
             query_parts = dict(part.split(':') for part in query.split() if ':' in part)
-            
             if 'patient' in query_parts:
                 mongo_query['patient_id'] = query_parts['patient']
             if 'study' in query_parts:
@@ -144,15 +142,14 @@ def search_studies():
         # Execute search
         studies = list(db.studies.find(mongo_query))
         
-        # Format response
-        formatted_studies = []
-        for study in studies:
-            study['_id'] = str(study['_id'])
-            formatted_studies.append(study)
-            
-        return json_util.dumps(formatted_studies), 200, {'Content-Type': 'application/json'}
+        # Använd json_util.dumps för att hantera MongoDB-specifika typer
+        return Response(
+            json_util.dumps(studies),
+            mimetype='application/json'
+        )
+        
     except Exception as e:
-        logger.error(f"Search error: {str(e)}", exc_info=True)
+        logger.error(f"Search error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/dataset/analyze', methods=['GET'])
@@ -167,39 +164,61 @@ def analyze_dataset():
 @app.route('/api/dicom/image', methods=['GET'])
 def get_dicom_image():
     try:
-        path = request.args.get('path')
-        app.logger.info(f"Incoming path: {path}")
-        
-        if not path:
-            return jsonify({'error': 'No path provided'}), 400
+        image_path = request.args.get('path')
+        app.logger.info(f"\n[DICOM] Loading image: {image_path}")
 
-        # Handle spaces in path
-        normalized_path = os.path.normpath(
-            path.replace('\\', '/')
-            .replace('%20', ' ')  # Handle URL-encoded spaces
-        ).lstrip('/')
-        
-        app.logger.info(f"Normalized path: {normalized_path}")
-        
-        # Try relative to DICOM_BASE_DIR
-        full_path = os.path.join(DICOM_BASE_DIR, normalized_path)
-        app.logger.info(f"Full path: {full_path}")
-        app.logger.info(f"Path exists? {os.path.exists(full_path)}")
-        
-        if not os.path.isfile(full_path):
-            app.logger.error(f"File not found at: {full_path}")
-            return jsonify({
-                'error': 'File not found',
-                'attempted_path': full_path,
-                'base_dir': DICOM_BASE_DIR,
-                'normalized_path': normalized_path
-            }), 404
+        if not os.path.exists(image_path):
+            app.logger.error(f"[DICOM] File not found: {image_path}")
+            return jsonify({"error": "File not found"}), 404
 
-        app.logger.info(f"Serving file from: {full_path}")
-        return send_file(full_path, mimetype='application/dicom')
+        # Läs DICOM-filen med force=True
+        ds = pydicom.dcmread(image_path, force=True)
+        app.logger.info(f"\n[DICOM] File info:")
+        app.logger.info(f"  Transfer Syntax: {ds.file_meta.TransferSyntaxUID}")
+        app.logger.info(f"  SOP Class: {ds.SOPClassUID}")
+        app.logger.info(f"  Modality: {ds.Modality}")
+
+        # Kontrollera pixel data
+        if not hasattr(ds, 'PixelData'):
+            app.logger.error("[DICOM] No pixel data found!")
+            raise ValueError("No pixel data found in DICOM file")
+
+        # Extrahera pixel data
+        try:
+            pixel_array = ds.pixel_array
+            app.logger.info(f"\n[DICOM] Pixel data info:")
+            app.logger.info(f"  Shape: {pixel_array.shape}")
+            app.logger.info(f"  Type: {pixel_array.dtype}")
+            app.logger.info(f"  Range: {pixel_array.min()} to {pixel_array.max()}")
+            app.logger.info(f"  Mean value: {pixel_array.mean():.2f}")
+            app.logger.info(f"  Memory size: {pixel_array.nbytes / 1024:.2f} KB")
+
+        except Exception as e:
+            app.logger.error(f"[DICOM] Failed to get pixel array: {str(e)}")
+            raise ValueError(f"Failed to extract pixel data: {str(e)}")
+
+        # Skapa response
+        response = {
+            'rows': int(ds.Rows),
+            'columns': int(ds.Columns),
+            'windowCenter': float(getattr(ds, 'WindowCenter', [127])[0]),
+            'windowWidth': float(getattr(ds, 'WindowWidth', [255])[0]),
+            'bitsAllocated': int(ds.BitsAllocated),
+            'rescaleIntercept': float(getattr(ds, 'RescaleIntercept', 0)),
+            'rescaleSlope': float(getattr(ds, 'RescaleSlope', 1)),
+            'pixelData': pixel_array.tolist()
+        }
+
+        app.logger.info(f"\n[DICOM] Sending response:")
+        app.logger.info(f"  Image size: {response['rows']}x{response['columns']}")
+        app.logger.info(f"  Window: C={response['windowCenter']}, W={response['windowWidth']}")
+        app.logger.info(f"  Bits: {response['bitsAllocated']}")
+
+        return jsonify(response)
+
     except Exception as e:
-        app.logger.error(f"Error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        app.logger.error(f"[DICOM] Error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/dicom/test', methods=['GET'])
 def test_connection():
@@ -224,14 +243,28 @@ def test_connection():
         }), 500
 
 @app.route('/api/dicom/series/<series_id>', methods=['GET'])
-def get_series(series_id):
+def get_series_by_id(series_id):
     try:
-        # Get series from MongoDB
+        # Hämta specifik serie
         series = db.series.find_one({'series_instance_uid': series_id})
         if not series:
             return jsonify({'error': 'Series not found'}), 404
-            
         return jsonify(series)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/dicom/series', methods=['GET'])
+def get_series_for_study():
+    try:
+        study_id = request.args.get('studyId')
+        if not study_id:
+            return jsonify({'error': 'studyId is required'}), 400
+            
+        study = db.studies.find_one({'study_instance_uid': study_id})
+        if not study:
+            return jsonify({'error': 'Study not found'}), 404
+            
+        return jsonify(study.get('series', []))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -292,22 +325,46 @@ def get_volume(series_id):
         series = db.series.find_one({'series_instance_uid': series_id})
         if not series:
             return jsonify({'error': 'Series not found'}), 404
-            
-        # Get all instances for this series
-        instances = list(db.instances.find({'series_instance_uid': series_id}))
+              
+        # Hämta alla instanser för denna serie
+        instances = list(db.instances.find({'series_instance_uid': series_id}).sort('instance_number', 1))
         
-        # Process volume data
-        volume_data = {
-            'volume': [], # Process DICOM data into volume array
-            'dimensions': {
-                'width': instances[0]['columns'],
-                'height': instances[0]['rows'],
-                'depth': len(instances)
-            }
-        }
+        if not instances:
+            return jsonify({'error': 'No instances found for series'}), 404
         
-        return jsonify(volume_data)
+        # Skapa en tom volym med rätt dimensioner
+        width = instances[0]['columns']
+        height = instances[0]['rows']
+        depth = len(instances)
+        
+        # Läs in pixeldata från varje instans
+        volume_data = []
+        for instance in instances:
+            try:
+                # Läs DICOM-filen
+                file_path = instance['file_path']
+                dataset = pydicom.dcmread(file_path)
+                
+                # Extrahera pixeldata och konvertera till float
+                pixel_array = dataset.pixel_array.astype(float)
+                
+                # Normalisera till 0-255
+                if pixel_array.max() > 0:
+                    pixel_array = ((pixel_array / pixel_array.max()) * 255.0).astype(float)
+                
+                # Lägg till i volymdata
+                volume_data.extend(pixel_array.flatten().tolist())
+            except Exception as e:
+                app.logger.error(f"Error reading instance {instance['instance_number']}: {str(e)}")
+        
+        # Returnera volymdata i rätt format för Cornerstone3D
+        return jsonify({
+            'volume': volume_data,
+            'dimensions': [width, height, depth],
+            'spacing': [1, 1, 1]  # Standard spacing om inte tillgängligt i DICOM
+        })
     except Exception as e:
+        app.logger.error(f"Error getting volume: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/dicom/upload', methods=['POST'])
@@ -375,13 +432,21 @@ def preprocess_mgmt(study_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/health')
+@app.route('/health', methods=['GET'])
 def health_check():
-    return jsonify({
-        'status': 'healthy',
-        'version': '1.0.0',
-        'mongodb_connected': True
-    })
+    print("[Flask] Health check endpoint hit")
+    try:
+        response = {
+            'status': 'ok',
+            'message': 'Imaging service is running',
+            'timestamp': datetime.now().isoformat(),
+            'routes': [str(rule) for rule in app.url_map.iter_rules()]  # Lista alla registrerade rutter
+        }
+        print("[Flask] Sending response:", response)
+        return jsonify(response)
+    except Exception as e:
+        print("[Flask] Error in health check:", str(e))
+        return jsonify({'error': str(e)}), 500
 
 @app.errorhandler(404)
 def not_found_error(error):
@@ -454,6 +519,79 @@ def debug_dicom():
 @app.route('/test', methods=['GET'])
 def test():
     return jsonify({'status': 'ok', 'message': 'Flask server is running'})
+
+@app.route('/api/dicom/window-presets', methods=['GET'])
+def get_window_presets():
+    try:
+        presets = [
+            {
+                "id": "brain",
+                "name": "Brain",
+                "windowWidth": 80,
+                "windowCenter": 40,
+                "description": "Brain window"
+            },
+            {
+                "id": "bone",
+                "name": "Bone",
+                "windowWidth": 2000,
+                "windowCenter": 500,
+                "description": "Bone window"
+            },
+            # Lägg till fler presets här
+        ]
+        return jsonify(presets)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/dicom/study/<study_id>', methods=['GET'])
+def get_study(study_id):
+    try:
+        print(f"[Flask] Received request for study: {study_id}")
+        
+        study = db.studies.find_one({'study_instance_uid': study_id})
+        if not study:
+            return jsonify({'error': 'Study not found'}), 404
+            
+        # Formatera datumet korrekt (från YYYYMMDD till YYYY-MM-DD)
+        study_date = study.get('study_date', '')
+        if study_date and len(study_date) == 8:
+            formatted_date = f"{study_date[:4]}-{study_date[4:6]}-{study_date[6:]}"
+        else:
+            formatted_date = None
+            
+        formatted_study = {
+            'study_instance_uid': study['study_instance_uid'],
+            'patient_id': study['patient_id'],
+            'study_date': formatted_date,  # Använd det formaterade datumet
+            'series': [{
+                'series_uid': series['series_uid'],
+                'series_number': series['series_number'],
+                'description': series['description'],
+                'modality': series['modality'],
+                'instances': [{
+                    'sop_instance_uid': instance['sop_instance_uid'],
+                    'instance_number': instance['instance_number'],
+                    'file_path': instance['file_path'].replace('\\', '/')
+                } for instance in series['instances']]
+            } for series in study['series']]
+        }
+        
+        return jsonify(formatted_study)
+        
+    except Exception as e:
+        print(f"[Flask] Error getting study: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/dicom/studies', methods=['GET'])
+def get_studies():
+    try:
+        patient_id = request.args.get('patientId')
+        query = {'patient_id': patient_id} if patient_id else {}
+        studies = list(db.studies.find(query))
+        return jsonify(studies)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     print("\nStarting Flask server...")

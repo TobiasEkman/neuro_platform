@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { DemoProvider } from './context/DemoContext';
 import Layout from './components/Layout';
 import './styles/App.css';
@@ -13,7 +13,9 @@ export const App: React.FC = () => {
       <GlobalStyle />
       <BrowserRouter>
         <DemoProvider>
-          <Layout />
+          <Routes>
+            <Route path="/*" element={<Layout />} />
+          </Routes>
         </DemoProvider>
       </BrowserRouter>
     </ThemeProvider>

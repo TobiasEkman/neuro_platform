@@ -228,7 +228,13 @@ export const PatientExplorer: React.FC = () => {
     if (!editData) return;
 
     try {
-      await patientService.updatePatient(editData._id, editData);
+      // Konvertera studies array till rätt format
+      const formattedData = {
+        ...editData,
+        studies: editData.studies?.map(study => study._id) || []
+      };
+
+      await patientService.updatePatient(editData._id, formattedData);
       setEditingId(null);
       setEditData(null);
       refreshPatients();

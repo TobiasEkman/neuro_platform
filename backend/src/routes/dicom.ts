@@ -6,6 +6,7 @@ import multer from 'multer';
 import { logger } from '../utils/logger';
 import { DicomModel } from '../models/DicomModel';
 import PatientModel from '../models/Patient';
+import Study from '../models/Study';
 
 const router = Router();
 
@@ -13,12 +14,22 @@ const IMAGING_SERVICE_URL = process.env.IMAGING_SERVICE_URL || 'http://localhost
 
 logger.info(`Configured imaging service URL: ${IMAGING_SERVICE_URL}`);
 
+// Lägg till debug-logging för att se alla inkommande requests
+router.use((req, res, next) => {
+  console.log('\x1b[35m%s\x1b[0m', '[Backend DICOM Route]', {
+    method: req.method,
+    path: req.path,
+    targetUrl: `${IMAGING_SERVICE_URL}${req.path}`
+  });
+  next();
+});
+
 // Helper function to handle service errors with proper typing
-const handleServiceError = (err: unknown, res: Response) => {
+const handleServiceError = (err: unknown, res: Response, defaultMessage = 'Service unavailable') => {
     if (axios.isAxiosError(err)) {
         // Handle Axios error
         logger.error(new Error(`Imaging service error: ${err.message}`));
-        const message = err.response?.data?.message || err.message || 'Service unavailable';
+        const message = err.response?.data?.message || err.message || defaultMessage;
         res.status(err.response?.status || 500).json({ error: message });
     } else {
         // Handle other errors
@@ -49,23 +60,25 @@ router.get('/image', async (req, res) => {
             throw new Error('No path provided');
         }
 
-        // Just normalize slashes and decode
         const normalizedPath = decodeURIComponent(path as string).replace(/\\/g, '/');
-        
-        console.log('[Backend] Forwarding image request for path:', normalizedPath);
+        console.log('[Backend DICOM] Image request:', {
+            path: normalizedPath,
+            type: 'JSON pixel data'  // Nu skickar vi JSON istället för binär data
+        });
 
         const response = await axios.get(
             `${IMAGING_SERVICE_URL}/api/dicom/image`,
             {
                 params: { path: normalizedPath },
-                responseType: 'stream'
+                responseType: 'json'  // Ändra till json
             }
         );
 
-        res.setHeader('Content-Type', 'application/octet-stream');
-        response.data.pipe(res);
+        // Skicka vidare JSON-response
+        res.json(response.data);
+        
     } catch (err) {
-        console.error('Error serving image:', err);
+        console.error('[Backend DICOM] Error:', err);
         handleServiceError(err, res);
     }
 });
@@ -237,23 +250,194 @@ router.post('/metadata', async (req: Request, res: Response) => {
     }
 });
 
-// Add a health check endpoint
-router.get('/health', async (req, res) => {
-    try {
-        logger.info('Health check request received');
-        const response = await axios.get(`${IMAGING_SERVICE_URL}/health`);
-        logger.info('Health check successful', {
-            status: response.status,
-            imagingServiceUrl: IMAGING_SERVICE_URL
-        });
-        res.json({ status: 'ok' });
-    } catch (err) {
-        logger.error(new Error('Health check failed'), {
-            error: err instanceof Error ? err.message : 'Unknown error',
-            imagingServiceUrl: IMAGING_SERVICE_URL
-        });
-        handleServiceError(err, res);
+// Uppdatera health endpoint
+router.get('/health', async (req: Request, res: Response) => {
+  try {
+    console.log('[Backend] Health check request received');
+    console.log('[Backend] Calling imaging service at:', `${IMAGING_SERVICE_URL}/health`);
+    
+    const response = await axios.get(`${IMAGING_SERVICE_URL}/health`);
+    console.log('[Backend] Imaging service response:', response.data);
+    
+    res.json({ 
+      status: 'ok', 
+      message: 'DICOM routes working',
+      imaging_service: response.data 
+    });
+  } catch (err) {
+    console.error('[Backend] Health check failed:', err);
+    res.status(500).json({ error: 'Failed to connect to imaging service' });
+  }
+});
+
+// Add missing routes to match Flask service:
+
+// Debug endpoint
+router.get('/debug', async (req: Request, res: Response) => {
+  try {
+    const response = await axios.get(`${IMAGING_SERVICE_URL}/api/dicom/debug`, {
+      params: req.query
+    });
+    res.json(response.data);
+  } catch (err) {
+    handleServiceError(err, res);
+  }
+});
+
+// Test endpoint
+router.get('/test', async (req: Request, res: Response) => {
+  try {
+    const response = await axios.get(`${IMAGING_SERVICE_URL}/test`);
+    res.json(response.data);
+  } catch (err) {
+    handleServiceError(err, res);
+  }
+});
+
+// Configuration endpoint
+router.get('/config', async (req: Request, res: Response) => {
+  try {
+    const response = await axios.get(`${IMAGING_SERVICE_URL}/api/dicom/config`);
+    res.json(response.data);
+  } catch (err) {
+    handleServiceError(err, res);
+  }
+});
+
+router.post('/config', async (req: Request, res: Response) => {
+  try {
+    const response = await axios.post(
+      `${IMAGING_SERVICE_URL}/api/dicom/config`,
+      req.body
+    );
+    res.json(response.data);
+  } catch (err) {
+    handleServiceError(err, res);
+  }
+});
+
+// Health check endpoint
+router.get('/health', async (req: Request, res: Response) => {
+  try {
+    const response = await axios.get(`${IMAGING_SERVICE_URL}/health`);
+    res.json(response.data);
+  } catch (err) {
+    handleServiceError(err, res);
+  }
+});
+
+// Add DICOM search endpoint
+router.get('/search', async (req: Request, res: Response) => {
+  try {
+    const response = await axios.get(`${IMAGING_SERVICE_URL}/api/dicom/search`, {
+      params: req.query
+    });
+    res.json(response.data);
+  } catch (err) {
+    handleServiceError(err, res);
+  }
+});
+
+// Add volume endpoint
+router.get('/volume/:seriesId', async (req: Request, res: Response) => {
+  try {
+    const response = await axios.get(
+      `${IMAGING_SERVICE_URL}/api/dicom/volume/${req.params.seriesId}`
+    );
+    res.json(response.data);
+  } catch (err) {
+    handleServiceError(err, res);
+  }
+});
+
+// Add metadata endpoints
+router.get('/metadata/:studyId', async (req: Request, res: Response) => {
+  try {
+    const response = await axios.get(
+      `${IMAGING_SERVICE_URL}/api/dicom/metadata/${req.params.studyId}`
+    );
+    res.json(response.data);
+  } catch (err) {
+    handleServiceError(err, res);
+  }
+});
+
+// Add stats endpoint
+router.get('/stats', async (req: Request, res: Response) => {
+  try {
+    const response = await axios.get(`${IMAGING_SERVICE_URL}/api/dicom/stats`);
+    res.json(response.data);
+  } catch (err) {
+    handleServiceError(err, res);
+  }
+});
+
+router.get('/window-presets', async (req: Request, res: Response) => {
+  try {
+    const response = await axios.get(`${IMAGING_SERVICE_URL}/api/dicom/window-presets`);
+    res.json(response.data);
+  } catch (err) {
+    handleServiceError(err, res);
+  }
+});
+
+// Add study endpoint
+router.get('/study/:studyId', async (req: Request, res: Response) => {
+  try {
+    console.log('[Backend] Study request received for:', req.params.studyId);
+    console.log('[Backend] Calling imaging service at:', `${IMAGING_SERVICE_URL}/api/dicom/study/${req.params.studyId}`);
+    
+    const response = await axios.get(
+      `${IMAGING_SERVICE_URL}/api/dicom/study/${req.params.studyId}`,
+      { 
+        // Lägg till timeout och extra headers för debugging
+        timeout: 5000,
+        headers: {
+          'Accept': 'application/json',
+          'X-Debug': 'true'
+        }
+      }
+    );
+    
+    console.log('[Backend] Imaging service response:', response.data);
+    res.json(response.data);
+  } catch (err) {
+    console.error('[Backend] Study fetch error:', err);
+    if (axios.isAxiosError(err)) {
+      console.error('[Backend] Axios error details:', {
+        status: err.response?.status,
+        data: err.response?.data,
+        config: err.config
+      });
     }
+    handleServiceError(err, res);
+  }
+});
+
+// Add series endpoint
+router.get('/series', async (req: Request, res: Response) => {
+  try {
+    const response = await axios.get(
+      `${IMAGING_SERVICE_URL}/api/dicom/series`,
+      { params: req.query }
+    );
+    res.json(response.data);
+  } catch (err) {
+    handleServiceError(err, res);
+  }
+});
+
+// Add studies endpoint
+router.get('/studies', async (req: Request, res: Response) => {
+  try {
+    // Hämta alla studies från MongoDB
+    const studies = await Study.find({}).lean();
+    console.log('Found studies:', studies.length);
+    res.json(studies);
+  } catch (error) {
+    console.error('Error fetching studies:', error);
+    res.status(500).json({ error: 'Failed to fetch studies' });
+  }
 });
 
 export default router; 

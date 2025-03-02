@@ -5,7 +5,7 @@ import styled from 'styled-components';
 // Components
 import Navigation from '../Navigation';
 import Dashboard from '../Dashboard';
-import DicomViewer from '../DicomViewer';
+import DicomViewer from '../DicomViewer/DicomViewer';
 import PreopPlanning from '../PreopPlanning';
 import ICPMonitoring from '../ICPMonitoring';
 import TumorAnalysis from '../TumorAnalysis';
@@ -13,7 +13,6 @@ import { DicomManager } from '../DicomManager';
 import LocalInference from '../LocalInference';
 import NeurosurgerySimulator from '../simulator/NeurosurgerySimulator';
 import MedicalDocumentation from '../MedicalDocumentation';
-import { DicomDebug } from '../DicomViewer/DicomDebug';
 import { PatientExplorer } from '../PatientExplorer';
 
 // Styles
@@ -55,8 +54,8 @@ const Layout: React.FC = () => {
           <Route path="/simulator" element={<NeurosurgerySimulator />} />
           <Route path="/inference" element={<LocalInference />} />
           <Route path="/dicom-viewer" element={<DicomViewer />} />
+          <Route path="/dicom-viewer/:studyId" element={<DicomViewer />} />
           <Route path="/documentation" element={<MedicalDocumentation />} />
-          <Route path="/debug" element={<DicomDebug />} />
           <Route path="/patients" element={<PatientExplorer />} />
         </Routes>
       </MainContent>

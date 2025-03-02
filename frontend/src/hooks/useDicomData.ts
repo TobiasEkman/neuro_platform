@@ -1,48 +1,49 @@
 import { useState, useEffect } from 'react';
-import { CTFindings } from '../types/medical';
 import dicomService from '../services/dicomService';
-import { DicomStudy } from '../types/dicom';
+import { DicomStudy, SearchResult } from '../types/medical';
 
-interface UseDicomDataReturn {
-    latestCTFindings: CTFindings | null;
-    loading: boolean;
-    error: string | null;
-}
-
-export const useDicomData = (patientId: string): UseDicomDataReturn => {
-    const [latestCTFindings, setLatestCTFindings] = useState<CTFindings | null>(null);
+export const useDicomData = (patientId?: string) => {
+    const [studies, setStudies] = useState<DicomStudy[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        const fetchData = async () => {
+        const fetchStudies = async () => {
             try {
                 setLoading(true);
-                const studies = await dicomService.searchStudies(`patient:${patientId}`);
+                const query = patientId ? `patient:${patientId}` : '';
+                const results = await dicomService.searchStudies(query);
                 
-                // Find latest CT study
-                const latestCTStudy = studies
-                    .filter((study: DicomStudy) => study.type === 'CT')
-                    .sort((a: DicomStudy, b: DicomStudy) => 
-                        new Date(b.study_date).getTime() - new Date(a.study_date).getTime()
-                    )[0];
-
-                if (latestCTStudy) {
-                    // Get CT analysis results
-                    const response = await fetch(`/api/dicom/analyze/ct/${latestCTStudy.study_instance_uid}`);
-                    if (!response.ok) throw new Error('Failed to analyze CT');
-                    const findings = await response.json();
-                    setLatestCTFindings(findings);
-                }
+                // Konvertera sökresultat till DicomStudy[]
+                const studyResults = results
+                    .filter(result => result.type === 'study' && result.studyData)
+                    .map(result => convertStudy(result.studyData as DicomStudy));
+                
+                setStudies(studyResults);
             } catch (err) {
-                setError(err instanceof Error ? err.message : 'Failed to fetch data');
+                setError(err instanceof Error ? err.message : 'Failed to fetch studies');
             } finally {
                 setLoading(false);
             }
         };
 
-        fetchData();
+        fetchStudies();
     }, [patientId]);
 
-    return { latestCTFindings, loading, error };
+    return { studies, loading, error };
+};
+
+const convertStudy = (study: DicomStudy): DicomStudy => {
+    return {
+        ...study,
+        _id: study.study_instance_uid,
+        modalities: study.modality ? [study.modality] : [],
+        num_series: study.series.length,
+        num_instances: study.series.reduce((sum, s) => sum + s.instances.length, 0),
+        series: study.series.map(s => ({
+            ...s,
+            series_uid: s.series_instance_uid,
+            filePath: s.instances[0]?.file_path || ''
+        }))
+    };
 }; 
