@@ -1,13 +1,12 @@
-NEUROSURGERY PLATFORM
+*NEUROSURGERY PLATFORM*
 ====================
-
-TECHNICAL ARCHITECTURE
 
 A comprehensive platform for neurosurgical planning, monitoring, and analysis.
 
 A. CORE COMPONENTS
+------------------
 
-1. Frontend (React + TypeScript)
+**1. Frontend (React + TypeScript)**
 - Modern SPA architecture with real-time monitoring
 - Key features:
   * Patient dashboard with vital metrics
@@ -39,7 +38,7 @@ A. CORE COMPONENTS
   * Global theme system with CSS variables
 - Technologies: React 18, TypeScript, Chart.js, Three.js
 
-2. Main API (Node.js + Express)
+**2. Main API (Node.js + Express)**
 - Central orchestration layer
 - Handles:
   * Patient data management
@@ -49,7 +48,7 @@ A. CORE COMPONENTS
   * DICOM import coordination
 - Technologies: Node.js, Express, TypeScript, Mongoose
 
-3. Tumor Analysis Service (Flask)
+**3. Tumor Analysis Service (Flask)**
 - Specialized Python microservice for:
   * Tumor segmentation
   * Critical structure identification
@@ -58,21 +57,21 @@ A. CORE COMPONENTS
   * Molecular marker analysis
 - Technologies: Flask, TensorFlow, NumPy, PyDICOM
 
-4. ICP Monitoring Service (Flask)
+**4. ICP Monitoring Service (Flask)**
 - Dedicated service for:
   * Real-time ICP trend analysis
   * ICP prediction and alerting
   * Risk factor analysis
 - Technologies: Flask, TensorFlow, NumPy
 
-5. Model Training Service (Flask)
+**5. Model Training Service (Flask)**
 - Dedicated service for:
   * Training tumor classification models
   * ICP prediction model training
   * Model versioning and storage
 - Technologies: Flask, TensorFlow, Keras
 
-6. Medical Documentation Service (Flask)
+**6. Medical Documentation Service (Flask)**
 - Natural language processing for:
   * ICD-10 code suggestions
   * Procedure coding
@@ -84,7 +83,7 @@ A. CORE COMPONENTS
   * Interactive coding suggestions
 - Technologies: Flask, Transformers, PyTorch, Whisper
 
-7. Imaging Data Service (Flask)
+**7. Imaging Data Service (Flask)**
 - DICOM data management:
   * Folder-based DICOM import
   * DICOMDIR parsing
@@ -99,7 +98,7 @@ A. CORE COMPONENTS
   * Measurement calibration support
 - Technologies: Flask, PyDICOM, PyMongo
 
-8. Simulator Service (Flask)
+**8. Simulator Service (Flask)**
 - Neurosurgical simulation features:
   * Session management and tracking
   * Performance metrics collection
@@ -109,7 +108,7 @@ A. CORE COMPONENTS
   * Medication management
 - Technologies: Flask, PyMongo
 
-9. Local Inference Service (Flask)
+**9. Local Inference Service (Flask)**
 - Secure local model execution:
   * Encrypted AI models
   * Time-limited decryption keys
@@ -121,7 +120,7 @@ A. CORE COMPONENTS
   * Only metadata and usage statistics tracked
 - Technologies: Flask, TensorFlow, Cryptography
 
-10. Data Storage
+**10. Data Storage**
 - MongoDB:
   * Patient metadata
   * Analysis results
@@ -134,32 +133,33 @@ A. CORE COMPONENTS
   * Analysis outputs
 
 B. API ENDPOINTS
+----------------
 
-1. Patient Management Service (port 5008)
+**1. Patient Management Service (port 5008)**
 - /patients: Get all patients with filtering
 - /patients/<id>: Get, update, delete single patient
 - /patients/pid/<pid>: Get, update, delete single patient by PID
 - /bulk-upload: Bulk patient data upload
 - /health: Service health check
 
-2. Tumor Analysis Service (port 5005)
+**2. Tumor Analysis Service (port 5005)**
 - /api/analysis/tumor: Tumor analysis
 - /api/analysis/mgmt/{study_id}: MGMT methylation status prediction
 
-3. ICP Monitoring Service (port 5006)
+**3. ICP Monitoring Service (port 5006)**
 - /api/analysis/icp/predict: ICP prediction
 
-4. Training Service (port 5001)
+**4. Training Service (port 5001)**
 - /api/training/tumor: Model training
 - /api/training/icp: ICP model training
 
-5. Clinical Coding (port 5002)
+**5. Clinical Coding (port 5002)**
 - /api/coding/icd: ICD code suggestions
 - /api/coding/procedure: Procedure coding
 - /api/journal/generate: AI-powered journal generation
 - /api/transcribe: Voice transcription service
 
-6. DICOM Service (port 5003)
+**6. DICOM Service (port 5003)**
 - /api/dicom/parse/folder: Parse DICOM folder
 - /api/dicom/parse/dicomdir: Parse DICOMDIR file
 - /api/search: Fuzzy search across DICOM data
@@ -171,7 +171,7 @@ B. API ENDPOINTS
 - /api/dicom/window-presets: Get window/level presets
 - /api/dicom/validate/{seriesId}: Validate DICOM data
 
-7. Simulator Service (port 5007)
+**7. Simulator Service (port 5007)**
 - /api/simulator/*: Simulator endpoints
   - /session: Create and manage simulation sessions
   - /metrics: Track performance metrics
@@ -180,24 +180,29 @@ B. API ENDPOINTS
   - /crisis: Handle crisis events
   - /vital-signs: Get patient vital signs
 
-8. Local Inference Service (port 5004)
+**8. Local Inference Service (port 5004)**
 - /api/inference/decrypt: Decrypt model
 - /api/inference/model/{filename}: Get decrypted model
 - /api/inference/track: Track model usage
 
 C. DEVELOPMENT SETUP
+--------------------
 
-1. Frontend:
+**1. Frontend:**
+```bash
 cd frontend
 npm install
 npm start
+```
 
-2. Backend:
+**2. Backend:**
+```bash
 cd backend
 npm install
 npm run dev
+```
 
-3. Individual Service Development (Dicom parsing, Tumor analysis, ICP monitoring, etc.)
+**3. Individual Service Development (Dicom parsing, Tumor analysis, ICP monitoring, etc.)**
 
 Each service can be tested independently using either Docker or local development.
 
@@ -220,7 +225,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-4. Testing with Mock Data (Probably not needed)
+**4. Testing with Mock Data (Probably not needed)**
 
 Generate mock data for specific services:
 ```bash
@@ -237,8 +242,9 @@ python mock_data_generator.py
 ```
 
 D. DEPENDENCIES
+---------------
 
-1. Frontend:
+**1. Frontend:**
 - React 18.2
 - TypeScript 4.9
 - Three.js 0.150
@@ -248,12 +254,12 @@ D. DEPENDENCIES
 - React Router DOM 6.10
 - React Icons 5.4
 
-2. Backend:
+**2. Backend:**
 - Node.js 16+
 - Express 4.18
 - Mongoose 7.0
 
-3. AI Services:
+**3. AI Services:**
 - Python 3.9+
 - TensorFlow 2.15
 - Flask 2.0
@@ -261,13 +267,14 @@ D. DEPENDENCIES
 - Whisper 1.0
 - FuzzyWuzzy 0.18
 
-4. DICOM Service:
+**4. DICOM Service:**
 - Python 3.9+
 - Flask 2.0
 - PyDICOM 2.2
 - PyMongo 4.3
 
 E. DOCKER SUPPORT
+-----------------
 
 All components are containerized with Docker:
 - Frontend: Node 16 Alpine
@@ -306,6 +313,7 @@ DICOM Data Management:
   ```
 
 F. SECURITY FEATURES
+--------------------
 
 - HTTPS for all external communication
 - JWT-based authentication
@@ -319,6 +327,7 @@ F. SECURITY FEATURES
 - Proper error handling for missing or invalid files
 
 G. PROJECT STRUCTURE
+--------------------
 
 neuro-platform/
 ├── frontend/                 # React application
@@ -362,39 +371,38 @@ neuro-platform/
 
 
 H. SPECIFIC SERVICE INFORMATION
+-----------------------------
 
-MGMT Analysis Pipeline
---------------------
+**MGMT Analysis Pipeline**
 Integrated workflow for MGMT methylation status prediction:
 
-1. Data Processing:
+***1. Data Processing:***
    - Validation of required MRI sequences (T1, T1c, T2, FLAIR)
    - Automated sequence type identification
    - Standardized preprocessing pipeline
 
-2. Model Architecture:
+***2. Model Architecture:***
    - Deep learning model for MGMT status prediction
    - Multi-sequence input (4 channel)
    - Binary classification output
    - Confidence scoring
 
-3. Integration Points:
+***3. Integration Points:***
    - Preprocessing in imaging_data service
    - Model training in model_training service
    - Inference endpoints in tumor_analysis service
    - Sequence validation and normalization
 
-4. Workflow:
+***4. Workflow:***
    - Study validation → Sequence preprocessing → MGMT prediction
    - Automated sequence identification
    - Standardized data normalization
    - Confidence-scored predictions
 
 
-Patient and Imaging Data Management
------------------------------------
+**Patient and Imaging Data Management**
 
-1. **Patient Management Service (@patient_management) - Port 5008**  
+***1. Patient Management Service (@patient_management) - Port 5008***  
    - Manages patient records in MongoDB.  
    - Main routes:
      - `GET /patients` – Retrieve patients (with optional filtering).  
@@ -406,7 +414,7 @@ Patient and Imaging Data Management
      - `DELETE /patients/<patient_id>` – Delete by MongoDB ObjectId.  
      - `POST /patients/pid/<pid>/dicom` – Add DICOM data for an existing PID.
 
-2. **Imaging Data Service (@imaging_data) - Port 5003**  
+***2. Imaging Data Service (@imaging_data) - Port 5003***  
    - Handles DICOM file uploads and parsing.  
    - Main routes:
      - `POST /dicom/upload` – Upload DICOM files.  
@@ -415,25 +423,24 @@ Patient and Imaging Data Management
        3. Parses them into `study_data`.  
        4. Calls `@patient_management /patients/pid/<pid>/dicom` to attach new images/studies to that patient's record.
 
-3. **Front-End**  
-   - **DicomManager (@DicomManager)**  
+***3. Front-End***  
+   - DicomManager (@DicomManager)
      - Components like `DicomUploader.tsx` handle file selection, validate the PID (by calling `/patients/pid/<pid>`), then upload to `@imaging_data`.  
      - If upload is successful, the imaging service updates the patient in `@patient_management`.
-   - **PatientExplorer (@PatientExplorer)**  
+   - PatientExplorer (@PatientExplorer) 
      - Displays patient details, allows selection or creation of a patient, and obtains the PID for use in `@DicomManager`.
 
-## Example DICOM Upload Flow
+Example DICOM Upload Flow
 
-1. **User** enters a PID in the DicomUploader UI (front-end).  
-2. **DicomUploader** calls `GET /patients/pid/<pid>` to confirm the patient exists.  
-3. **DicomUploader** sends the selected DICOM files, along with `pid`, to the Imaging Data service (`POST /dicom/upload`).  
+1. User enters a PID in the DicomUploader UI (front-end).  
+2. DicomUploader calls `GET /patients/pid/<pid>` to confirm the patient exists.  
+3. DicomUploader sends the selected DICOM files, along with `pid`, to the Imaging Data service (`POST /dicom/upload`).  
 4. The Imaging Data service parses those files into study data (using local DICOM parsing logic).  
 5. The Imaging Data service calls the Patient Management service's `POST /patients/pid/<pid>/dicom` endpoint with the parsed study data.  
 6. The Patient Management service updates the patient record in MongoDB, appending the newly uploaded images and creating corresponding study entries.  
-7. **User** sees confirmation on the front-end that the images are now tied to that PID.
+7. User sees confirmation on the front-end that the images are now tied to that PID.
 
-Local Inference Service
------------------------------------
+**Local Inference Service**
 
 After starting the service and generating mock data:
 ```bash
@@ -448,8 +455,8 @@ curl http://localhost:5004/get_decrypted_model/model_decrypted.json
 ```
 
 I. DATA FLOW DIAGRAMS
-
-### DICOM Upload Flow
+---------------------
+**DICOM Upload Flow**
 
 ```mermaid
 sequenceDiagram
@@ -486,7 +493,7 @@ sequenceDiagram
     end
 ```
 
-### Patient Data Upload Flow
+**Patient Data Upload Flow**
 ```mermaid
 sequenceDiagram
     actor User
