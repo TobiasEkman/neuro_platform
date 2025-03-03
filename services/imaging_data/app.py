@@ -19,6 +19,7 @@ from bson import json_util
 from bson.objectid import ObjectId
 from pathlib import Path
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 
 # Set logging level to INFO
 logging.basicConfig(level=logging.INFO)
@@ -591,6 +592,98 @@ def get_studies():
         studies = list(db.studies.find(query))
         return jsonify(studies)
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/dicom/images/batch/<series_id>', methods=['GET'])
+def get_image_batch(series_id):
+    try:
+        start = int(request.args.get('start', 0))
+        batch_size = int(request.args.get('count', 10))
+        
+        # Hämta serien
+        series = db.series.find_one({'series_instance_uid': series_id})
+        if not series or not series.get('instances'):
+            return jsonify({'error': 'Series not found'}), 404
+            
+        # Sortera instances efter nummer
+        instances = sorted(
+            series['instances'], 
+            key=lambda x: int(x.get('instance_number', 0))
+        )[start:start + batch_size]
+        
+        # Läs alla bilder i batchen parallellt
+        def load_image(instance):
+            ds = pydicom.dcmread(instance['file_path'], force=True)
+            return {
+                'instanceId': instance['sop_instance_uid'],
+                'pixelData': ds.pixel_array.tolist(),
+                'rows': ds.Rows,
+                'columns': ds.Columns,
+                'windowCenter': float(ds.WindowCenter),
+                'windowWidth': float(ds.WindowWidth)
+            }
+            
+        with ThreadPoolExecutor() as executor:
+            batch_images = list(executor.map(load_image, instances))
+            
+        return jsonify({
+            'images': batch_images,
+            'total': len(series['instances']),
+            'start': start,
+            'count': len(batch_images)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error loading image batch: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/dicom/cornerstone/<series_id>', methods=['GET'])
+def get_cornerstone_image():
+    try:
+        file_path = request.args.get('path')
+        if not file_path:
+            return jsonify({'error': 'No file path provided'}), 400
+
+        # Läs DICOM-filen
+        ds = pydicom.dcmread(file_path, force=True)
+        
+        # Formatera data som Cornerstone förväntar sig
+        response = {
+            'imageId': f'dicom://{file_path}',
+            'minPixelValue': float(ds.pixel_array.min()),
+            'maxPixelValue': float(ds.pixel_array.max()),
+            'slope': float(ds.get('RescaleSlope', 1.0)),
+            'intercept': float(ds.get('RescaleIntercept', 0.0)),
+            'windowCenter': float(ds.get('WindowCenter', ds.pixel_array.mean())),
+            'windowWidth': float(ds.get('WindowWidth', ds.pixel_array.max() - ds.pixel_array.min())),
+            'rows': int(ds.Rows),
+            'columns': int(ds.Columns),
+            'height': int(ds.Rows),
+            'width': int(ds.Columns),
+            'color': False,
+            'columnPixelSpacing': float(ds.get('PixelSpacing', [1.0])[0]),
+            'rowPixelSpacing': float(ds.get('PixelSpacing', [1.0, 1.0])[1]),
+            'sizeInBytes': len(ds.pixel_array.tobytes()),
+            'pixelData': ds.pixel_array.tobytes()
+        }
+
+        return Response(
+            response=response['pixelData'],
+            mimetype='application/octet-stream',
+            headers={
+                'X-Min-Pixel-Value': str(response['minPixelValue']),
+                'X-Max-Pixel-Value': str(response['maxPixelValue']),
+                'X-Window-Center': str(response['windowCenter']),
+                'X-Window-Width': str(response['windowWidth']),
+                'X-Rows': str(response['rows']),
+                'X-Columns': str(response['columns']),
+                'X-Intercept': str(response['intercept']),
+                'X-Slope': str(response['slope'])
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Error loading Cornerstone image: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':

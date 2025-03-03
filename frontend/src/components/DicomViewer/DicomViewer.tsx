@@ -3,6 +3,42 @@ import styled from 'styled-components';
 import dicomService, { DicomService } from '../../services/dicomService';
 import { DicomStudy, DicomSeries, DicomInstance, SearchResult } from '../../types/medical';
 import { Patient } from '../../types/patient';
+import {
+  ViewerContainer,
+  ViewerGrid,
+  ViewerPanel,
+  Canvas,
+  Controls,
+  SliceSlider,
+  ViewerLabel,
+  SegmentationOverlay,
+  SideNav,
+  SideNavItem
+} from './styles';
+import * as cornerstone from '@cornerstonejs/core';
+import * as cornerstoneTools from '@cornerstonejs/tools';
+import { ViewportType, OrientationAxis } from '../../types/cornerstoneEnums';
+import { 
+  RenderingEngine,
+  Types,
+  volumeLoader,
+  Enums,
+  cache as cornerstoneCache
+} from '@cornerstonejs/core';
+import { 
+  ToolGroupManager,
+  Tools
+} from '@cornerstonejs/tools';
+import { FaHome, FaSearch, FaBrain, FaChartLine } from 'react-icons/fa';
+import { useNavigate } from 'react-router-dom';
+
+// Ta bort individuella verktygsimporter och använd Tools istället
+const { 
+  WindowLevelTool, 
+  PanTool, 
+  ZoomTool, 
+  StackScrollMouseWheelTool 
+} = Tools;
 
 // Styled components
 const MainContainer = styled.div`
@@ -49,13 +85,6 @@ const ImageViewer = styled.div`
   background: black;
 `;
 
-const Canvas = styled.canvas`
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-`;
-
 const ListTitle = styled.h3`
   margin: 0 0 1rem 0;
   padding: 0.5rem;
@@ -67,25 +96,6 @@ const InfoPanel = styled.div`
   background: ${props => props.theme.colors.background.primary};
   border-radius: 4px;
   margin-top: 1rem;
-`;
-
-const Controls = styled.div`
-  position: absolute;
-  bottom: 1rem;
-  left: 1rem;
-  right: 1rem;
-  display: flex;
-  gap: 1rem;
-  align-items: center;
-  background: rgba(0, 0, 0, 0.7);
-  padding: 1rem;
-  border-radius: 4px;
-  color: white;
-`;
-
-const SliceSlider = styled.input`
-  flex: 1;
-  width: 100%;
 `;
 
 const SearchContainer = styled.div`
@@ -128,32 +138,6 @@ const SearchResultItem = styled.div<{ isSelected?: boolean }>`
     background: ${props => props.isSelected ? props.theme.colors.primary : props.theme.colors.background.hover};
     color: ${props => props.isSelected ? '#ffffff' : props.theme.colors.text.primary};
   }
-`;
-
-const ViewerGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  grid-template-rows: repeat(2, 1fr);
-  gap: 1rem;
-  flex: 1;
-  padding: 1rem;
-  background: black;
-`;
-
-const ViewerPanel = styled.div`
-  position: relative;
-  background: black;
-  border: 1px solid ${props => props.theme.colors.border};
-`;
-
-const ViewerLabel = styled.div`
-  position: absolute;
-  top: 0.5rem;
-  left: 0.5rem;
-  color: white;
-  background: rgba(0, 0, 0, 0.5);
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
 `;
 
 const SeriesItem = styled.div<{ isSelected: boolean }>`
@@ -248,17 +232,39 @@ const createVolume = async (instances: DicomInstance[]): Promise<VolumeDataType 
   }
 };
 
-export const DicomViewer: React.FC = () => {
-  // State
+interface DicomViewerProps {
+  seriesId: string | undefined;
+  segmentationMask: number[] | null;
+  showSegmentation: boolean;
+  onSeriesSelect?: (seriesId: string) => void;  // Callback för att meddela TumorAnalysis
+}
+
+interface ViewportInput {
+  viewportId: string;
+  element: HTMLCanvasElement;
+  type: ViewportType;
+  defaultOptions?: {
+    orientation?: string;
+  };
+}
+
+const DicomViewer: React.FC<DicomViewerProps> = ({
+  seriesId,
+  segmentationMask,
+  showSegmentation,
+  onSeriesSelect
+}) => {
+  const axialRef = useRef<HTMLCanvasElement>(null);
+  const sagittalRef = useRef<HTMLCanvasElement>(null);
+  const coronalRef = useRef<HTMLCanvasElement>(null);
+  const [renderingEngine, setRenderingEngine] = useState<RenderingEngine | null>(null);
+  
+  const [windowCenter, setWindowCenter] = useState(40);
+  const [windowWidth, setWindowWidth] = useState(400);
+  const [currentSlice, setCurrentSlice] = useState(0);
+  const [totalSlices, setTotalSlices] = useState(0);
   const [currentSeries, setCurrentSeries] = useState<any>(null);
   const [currentSlices, setCurrentSlices] = useState<any[]>([]);
-  const [currentSliceIndex, setCurrentSliceIndex] = useState(-1);
-  const [currentScale, setCurrentScale] = useState(1);
-  const [isDragging, setIsDragging] = useState(false);
-  const [translateX, setTranslateX] = useState(0);
-  const [translateY, setTranslateY] = useState(0);
-  const [currentWindowCenter, setCurrentWindowCenter] = useState(127);
-  const [currentWindowWidth, setCurrentWindowWidth] = useState(255);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
   const [studies, setStudies] = useState<DicomStudy[]>([]);
@@ -275,14 +281,20 @@ export const DicomViewer: React.FC = () => {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [selectedSearchIndex, setSelectedSearchIndex] = useState(-1);
   const [showSearchResults, setShowSearchResults] = useState(false);
+  const [imageCache, setImageCache] = useState<Map<number, ImageData>>(new Map());
+  const BATCH_SIZE = 10;
+  const [isDragging, setIsDragging] = useState(false);
+  const [translateX, setTranslateX] = useState(0);
+  const [translateY, setTranslateY] = useState(0);
+  const [currentScale, setCurrentScale] = useState(1);
 
   // Refs
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const originalPixelDataRef = useRef<ImageData | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const sagittalRef = useRef<HTMLCanvasElement>(null);
-  const coronalRef = useRef<HTMLCanvasElement>(null);
   
+  const navigate = useNavigate();
+
   useEffect(() => {
     loadPatients();
     
@@ -361,7 +373,7 @@ export const DicomViewer: React.FC = () => {
       setSeries(study.series);
       setSelectedSeriesId(null);
       setCurrentSlices([]);
-      setCurrentSliceIndex(-1);
+      setCurrentSlice(-1);
     } catch (error) {
       console.error('Failed to load series:', error);
     }
@@ -387,13 +399,18 @@ export const DicomViewer: React.FC = () => {
       setVolumeData(volumeData);
       setCurrentSeries(selectedSeries);
       setCurrentSlices(selectedSeries.instances);
-      setCurrentSliceIndex(0);
+      setCurrentSlice(0);
 
       // Visa första bilden
       await loadAndDisplayImage(selectedSeries.instances[0]);
 
       // Rendera MPR-vyer
       renderMPR();
+
+      // Meddela TumorAnalysis om vald serie
+      if (onSeriesSelect) {
+        onSeriesSelect(seriesId);
+      }
 
     } catch (error) {
       console.error('Failed to load series:', error);
@@ -453,8 +470,8 @@ export const DicomViewer: React.FC = () => {
 
         // Spara för window/level
         originalPixelDataRef.current = imgData;
-        setCurrentWindowWidth(imageData.windowWidth);
-        setCurrentWindowCenter(imageData.windowCenter);
+        setWindowWidth(imageData.windowWidth);
+        setWindowCenter(imageData.windowCenter);
 
         ctx.putImageData(imgData, 0, 0);
       }
@@ -487,9 +504,9 @@ export const DicomViewer: React.FC = () => {
   };
 
   const navigateSlices = (delta: number) => {
-    const newIndex = Math.max(0, Math.min(currentSlices.length - 1, currentSliceIndex + delta));
-    if (newIndex !== currentSliceIndex && currentSlices[newIndex]) {
-      setCurrentSliceIndex(newIndex);
+    const newIndex = Math.max(0, Math.min(currentSlices.length - 1, currentSlice + delta));
+    if (newIndex !== currentSlice && currentSlices[newIndex]) {
+      setCurrentSlice(newIndex);
       loadAndDisplayImage(currentSlices[newIndex]);
     }
   };
@@ -612,11 +629,11 @@ export const DicomViewer: React.FC = () => {
       const deltaX = e.clientX - windowLevelStartPos.x;
       const deltaY = e.clientY - windowLevelStartPos.y;
       
-      const newWidth = Math.max(1, currentWindowWidth + deltaX);
-      const newCenter = currentWindowCenter + deltaY;
+      const newWidth = Math.max(1, windowWidth + deltaX);
+      const newCenter = windowCenter + deltaY;
       
-      setCurrentWindowWidth(newWidth);
-      setCurrentWindowCenter(newCenter);
+      setWindowWidth(newWidth);
+      setWindowCenter(newCenter);
       applyWindowLevel(newWidth, newCenter);
       
       setWindowLevelStartPos({ x: e.clientX, y: e.clientY });
@@ -650,40 +667,91 @@ export const DicomViewer: React.FC = () => {
     } else {
       // Slice navigation
       const delta = Math.sign(e.deltaY);
-      const newIndex = Math.max(0, Math.min(currentSlices.length - 1, currentSliceIndex + delta));
+      const newIndex = Math.max(0, Math.min(currentSlices.length - 1, currentSlice + delta));
       
-      if (newIndex !== currentSliceIndex && currentSlices[newIndex]) {
-        setCurrentSliceIndex(newIndex);
+      if (newIndex !== currentSlice && currentSlices[newIndex]) {
+        setCurrentSlice(newIndex);
         loadAndDisplayImage(currentSlices[newIndex]);
       }
     }
   };
 
+  const createImageData = (pixelData: number[][], rows: number, columns: number): ImageData => {
+    const ctx = canvasRef.current?.getContext('2d');
+    if (!ctx) throw new Error('No canvas context');
+    
+    const imageData = ctx.createImageData(columns, rows);
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < columns; x++) {
+        const i = (y * columns + x) * 4;
+        const value = pixelData[y][x];
+        imageData.data[i] = value;
+        imageData.data[i + 1] = value;
+        imageData.data[i + 2] = value;
+        imageData.data[i + 3] = 255;
+      }
+    }
+    return imageData;
+  };
+
+  const loadImageBatch = useCallback(async (startIndex: number) => {
+    if (!seriesId) return;
+    
+    try {
+      const response = await dicomService.getImageBatch(seriesId, startIndex, BATCH_SIZE);
+      
+      // Uppdatera cache med nya bilder
+      const newCache = new Map(imageCache);
+      response.images.forEach((img, i) => {
+        const imageData = createImageData(img.pixelData, img.rows, img.columns);
+        newCache.set(startIndex + i, imageData);
+      });
+      setImageCache(newCache);
+      
+    } catch (error) {
+      console.error('Failed to load image batch:', error);
+    }
+  }, [seriesId, imageCache]);
+
+  // Förladda nästa batch när användaren närmar sig slutet
+  useEffect(() => {
+    if (currentSlice > 0 && (currentSlice % BATCH_SIZE) === BATCH_SIZE - 3) {
+      loadImageBatch(currentSlice + BATCH_SIZE);
+    }
+  }, [currentSlice, loadImageBatch]);
+
   const handleSliceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newIndex = parseInt(e.target.value);
-    if (currentSlices[newIndex]) {
-      setCurrentSliceIndex(newIndex);
-      loadAndDisplayImage(currentSlices[newIndex]);
+    setCurrentSlice(newIndex);
+    
+    if (imageCache.has(newIndex)) {
+      const ctx = canvasRef.current?.getContext('2d');
+      if (ctx) {
+        ctx.putImageData(imageCache.get(newIndex)!, 0, 0);
+      }
+    } else {
+      const batchStart = Math.floor(newIndex / BATCH_SIZE) * BATCH_SIZE;
+      loadImageBatch(batchStart);
     }
   };
 
   // Window/level handlers
   const handleWindowLevelChange = (center: number, width: number) => {
-    setCurrentWindowCenter(center);
-    setCurrentWindowWidth(width);
+    setWindowCenter(center);
+    setWindowWidth(width);
     applyWindowLevel(width, center);
   };
 
   const updateSliceUI = useCallback(() => {
     if (currentSlices.length === 0) return;
     
-    const sliceInfo = `Slice ${currentSliceIndex + 1}/${currentSlices.length}`;
+    const sliceInfo = `Slice ${currentSlice + 1}/${currentSlices.length}`;
     // Uppdatera UI med slice info...
-  }, [currentSliceIndex, currentSlices]);
+  }, [currentSlice, currentSlices]);
 
   useEffect(() => {
     updateSliceUI();
-  }, [currentSliceIndex, currentSlices, updateSliceUI]);
+  }, [currentSlice, currentSlices, updateSliceUI]);
 
   // Uppdatera Patient referenser för att matcha typerna
   const handlePatientSelect = (patient: Patient) => {
@@ -716,7 +784,7 @@ export const DicomViewer: React.FC = () => {
         drawSlice(coronalRef.current, coronalSlice, dimensions.width, dimensions.depth);
       }
     }
-  }, [volumeData, currentWindowCenter, currentWindowWidth]);
+  }, [volumeData, windowCenter, windowWidth]);
 
   const getSagittalSlice = (x: number) => {
     if (!volumeData?.volume || !volumeData.dimensions) return null;
@@ -755,8 +823,8 @@ export const DicomViewer: React.FC = () => {
     const imageData = ctx.createImageData(width, height);
     const data = imageData.data;
 
-    const windowMin = currentWindowCenter - (currentWindowWidth / 2);
-    const windowMax = currentWindowCenter + (currentWindowWidth / 2);
+    const windowMin = windowCenter - (windowWidth / 2);
+    const windowMax = windowCenter + (windowWidth / 2);
 
     for (let i = 0; i < sliceData.length; i++) {
       const value = sliceData[i];
@@ -772,122 +840,209 @@ export const DicomViewer: React.FC = () => {
     ctx.putImageData(imageData, 0, 0);
   };
 
+  // Lägg till hantering av segmenteringsmasken
+  useEffect(() => {
+    if (!showSegmentation || !segmentationMask || !axialRef.current) return;
+
+    const viewport = cornerstone.getViewport(axialRef.current) as Types.IStackViewport;
+    if (!viewport) return;
+
+    viewport.addLayer({
+      imageIds: ['segmentation'],
+      options: {
+        opacity: 0.5,
+        colormap: 'hot',
+        data: segmentationMask
+      }
+    });
+  }, [segmentationMask, showSegmentation]);
+
+  // Initiera Cornerstone
+  useEffect(() => {
+    const init = async () => {
+      try {
+        // Initiera Cornerstone3D
+        await cornerstone.init();
+        await cornerstoneTools.init();
+
+        // Skapa rendering engine
+        const engine = new cornerstone.RenderingEngine('dicom-viewer');
+        setRenderingEngine(engine);
+
+        // Registrera image loader
+        dicomService.registerImageLoader();
+
+        // Skapa tool group
+        const toolGroup = ToolGroupManager.createToolGroup('default');
+        if (!toolGroup) return;
+
+        // Lägg till verktyg
+        toolGroup.addTool(WindowLevelTool.toolName);
+        toolGroup.addTool(PanTool.toolName);
+        toolGroup.addTool(ZoomTool.toolName);
+        toolGroup.addTool(StackScrollMouseWheelTool.toolName);
+
+        // Aktivera verktyg
+        toolGroup.setToolActive(Tools.WindowLevelTool.toolName, {
+          mouseButtonMask: 1
+        });
+        toolGroup.setToolActive(Tools.PanTool.toolName, {
+          mouseButtonMask: 2
+        });
+        toolGroup.setToolActive(Tools.ZoomTool.toolName, {
+          mouseButtonMask: 4
+        });
+        toolGroup.setToolActive(Tools.StackScrollMouseWheelTool.toolName);
+
+      } catch (error) {
+        console.error('Error initializing Cornerstone3D:', error);
+      }
+    };
+
+    init();
+    return () => {
+      if (renderingEngine) {
+        renderingEngine.destroy();
+      }
+      cornerstoneCache.purgeCache();
+    };
+  }, []);
+
+  // Ladda serie när seriesId ändras
+  useEffect(() => {
+    const loadSeries = async () => {
+      if (!selectedSeriesId) return;
+
+      try {
+        // Hämta imageIds för serien
+        const imageIds = await dicomService.getImageIds(selectedSeriesId);
+        
+        // Ladda första bilden
+        const image = await dicomService.loadAndCacheImage(imageIds[0]);
+        
+        // Visa i viewport
+        // ... Cornerstone3D rendering kod här
+      } catch (error) {
+        console.error('Error loading series:', error);
+      }
+    };
+
+    loadSeries();
+  }, [selectedSeriesId]);
+
   return (
-    <MainContainer>
-      <SidePanel>
-        <ListContainer>
-          <ListTitle>Patients</ListTitle>
-          {patients.map(patient => (
-            <ListItem 
-              key={patient.patient_id}
-              isSelected={patient.patient_id === selectedPatientId}
-              onClick={() => handlePatientSelect(patient)}
-            >
-              {patient.name} ({patient.patient_id})
-            </ListItem>
-          ))}
-        </ListContainer>
-        
-        <ListContainer>
-          <ListTitle>Studies</ListTitle>
-          {studies.map(study => (
-            <ListItem
-              key={study.study_instance_uid}
-              isSelected={study.study_instance_uid === selectedStudyId}
-              onClick={() => {
-                setSelectedStudyId(study.study_instance_uid);
-                loadSeries(study.study_instance_uid);
-              }}
-            >
-              {study.description} ({study.study_date})
-            </ListItem>
-          ))}
-        </ListContainer>
-        
-        <ListContainer>
-          <ListTitle>Series</ListTitle>
-          {series.map((series) => (
-            <SeriesItem
-              key={series.series_instance_uid}
-              isSelected={series.series_instance_uid === selectedSeriesId}
-              onClick={() => handleSeriesSelect(series.series_instance_uid)}
-            >
-              <div>Series {series.series_number}</div>
-              <div>{series.description || 'No description'}</div>
-            </SeriesItem>
-          ))}
-        </ListContainer>
-      </SidePanel>
+    <ViewerContainer>
+      <SideNav>
+        <SideNavItem onClick={() => navigate('/')}>
+          <FaHome />
+          <span>Home</span>
+        </SideNavItem>
+        <SideNavItem onClick={() => navigate('/patient-explorer')}>
+          <FaSearch />
+          <span>Patient Explorer</span>
+        </SideNavItem>
+        <SideNavItem onClick={() => navigate('/tumor-analysis')}>
+          <FaBrain />
+          <span>Tumor Analysis</span>
+        </SideNavItem>
+        <SideNavItem onClick={() => navigate('/statistics')}>
+          <FaChartLine />
+          <span>Statistics</span>
+        </SideNavItem>
+      </SideNav>
 
-      <ViewerGrid>
-        <ViewerPanel>
-          <ViewerLabel>Axial</ViewerLabel>
-          <Canvas 
-            ref={canvasRef}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseUp}
-            onWheel={handleWheel}
-          />
-        </ViewerPanel>
-
-        <ViewerPanel>
-          <ViewerLabel>Sagittal</ViewerLabel>
-          <Canvas ref={sagittalRef} />
-        </ViewerPanel>
-
-        <ViewerPanel>
-          <ViewerLabel>Coronal</ViewerLabel>
-          <Canvas ref={coronalRef} />
-        </ViewerPanel>
-
-        <ViewerPanel>
-          <ViewerLabel>3D</ViewerLabel>
-          {/* Placeholder för framtida 3D-rendering */}
-        </ViewerPanel>
-
-        <Controls>
-          <div>W: {currentWindowWidth}</div>
-          <div>C: {currentWindowCenter}</div>
-          
-          {currentSlices.length > 0 && (
-            <>
-              <div>Slice: {currentSliceIndex + 1}/{currentSlices.length}</div>
-              <SliceSlider
-                type="range"
-                min={0}
-                max={currentSlices.length - 1}
-                value={currentSliceIndex}
-                onChange={handleSliceChange}
-              />
-            </>
-          )}
-        </Controls>
-      </ViewerGrid>
-
-      <SearchContainer>
-        <SearchInput
-          ref={searchInputRef}
-          placeholder="Sök patient, studie eller serie..."
-          onChange={(e) => handleSearch(e.target.value)}
-          onKeyDown={handleSearchKeyDown}
-        />
-        {showSearchResults && searchResults.length > 0 && (
-          <SearchResultsList>
-            {searchResults.map((result, index) => (
-              <SearchResultItem
-                key={`${result.type}-${result.id}`}
-                isSelected={index === selectedSearchIndex}
-                onClick={() => handleSearchResultSelect(result)}
+      <MainContainer>
+        <SidePanel>
+          <ListContainer>
+            <ListTitle>Patients</ListTitle>
+            {patients.map(patient => (
+              <ListItem 
+                key={patient.patient_id}
+                isSelected={patient.patient_id === selectedPatientId}
+                onClick={() => handlePatientSelect(patient)}
               >
-                {result.type}: {result.text}
-              </SearchResultItem>
+                {patient.name} ({patient.patient_id})
+              </ListItem>
             ))}
-          </SearchResultsList>
-        )}
-      </SearchContainer>
-    </MainContainer>
+          </ListContainer>
+          
+          <ListContainer>
+            <ListTitle>Studies</ListTitle>
+            {studies.map(study => (
+              <ListItem
+                key={study.study_instance_uid}
+                isSelected={study.study_instance_uid === selectedStudyId}
+                onClick={() => {
+                  setSelectedStudyId(study.study_instance_uid);
+                  loadSeries(study.study_instance_uid);
+                }}
+              >
+                {study.description} ({study.study_date})
+              </ListItem>
+            ))}
+          </ListContainer>
+          
+          <ListContainer>
+            <ListTitle>Series</ListTitle>
+            {series.map((series) => (
+              <SeriesItem
+                key={series.series_instance_uid}
+                isSelected={series.series_instance_uid === selectedSeriesId}
+                onClick={() => handleSeriesSelect(series.series_instance_uid)}
+              >
+                <div>Series {series.series_number}</div>
+                <div>{series.description || 'No description'}</div>
+              </SeriesItem>
+            ))}
+          </ListContainer>
+        </SidePanel>
+
+        <ViewerGrid>
+          <ViewerPanel>
+            <ViewerLabel>Axial</ViewerLabel>
+            <Canvas ref={axialRef} />
+          </ViewerPanel>
+
+          <ViewerPanel>
+            <ViewerLabel>Sagittal</ViewerLabel>
+            <Canvas ref={sagittalRef} />
+          </ViewerPanel>
+
+          <ViewerPanel>
+            <ViewerLabel>Coronal</ViewerLabel>
+            <Canvas ref={coronalRef} />
+          </ViewerPanel>
+
+          <Controls>
+            <div>W: {windowWidth}</div>
+            <div>C: {windowCenter}</div>
+            <div>Slice: {currentSlice + 1}/{totalSlices}</div>
+          </Controls>
+        </ViewerGrid>
+
+        <SearchContainer>
+          <SearchInput
+            ref={searchInputRef}
+            placeholder="Sök patient, studie eller serie..."
+            onChange={(e) => handleSearch(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+          />
+          {showSearchResults && searchResults.length > 0 && (
+            <SearchResultsList>
+              {searchResults.map((result, index) => (
+                <SearchResultItem
+                  key={`${result.type}-${result.id}`}
+                  isSelected={index === selectedSearchIndex}
+                  onClick={() => handleSearchResultSelect(result)}
+                >
+                  {result.type}: {result.text}
+                </SearchResultItem>
+              ))}
+            </SearchResultsList>
+          )}
+        </SearchContainer>
+      </MainContainer>
+    </ViewerContainer>
   );
 };
 

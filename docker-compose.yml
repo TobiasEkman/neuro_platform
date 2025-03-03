@@ -22,5 +22,38 @@ services:
     volumes:
       - mongodb_data:/data/db
 
+  tumor_analysis:
+    build: 
+      context: ./services/tumor_analysis
+      dockerfile: Dockerfile
+    volumes:
+      - ${LOCAL_DICOM_PATH}:/data/dicom:ro
+      - processed_data:/data/processed
+      - segmentation_data:/data/segmentations
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all  # För GPU-stöd
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: neuro-platform-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_VERSION=22.14.0
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
 volumes:
-  mongodb_data: 
+  mongodb_data:
+  processed_data:
+  segmentation_data: 

@@ -1,6 +1,12 @@
 *NEUROSURGERY PLATFORM*
 ====================
 
+To do:
+- Currently working on implementing cornerstone3D in the dicom viewer
+- Improve tumor analysis service
+- Better dicom viewer, for example through batch up 
+- Implement docker compose for all services
+
 A comprehensive platform for neurosurgical planning, monitoring, and analysis.
 
 A. CORE COMPONENTS

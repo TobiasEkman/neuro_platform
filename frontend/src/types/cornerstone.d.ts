@@ -2,22 +2,25 @@ import { Types } from '@cornerstonejs/core';
 import { VolumeViewport } from '@cornerstonejs/core';
 
 declare module '@cornerstonejs/core' {
-  export class RenderingEngine {
-    constructor(id: string);
-    destroy(): void;
-    setViewports(viewportInputs: any[]): void;
-    render(): void;
-    getViewport(viewportId: string): VolumeViewport;
-    enableElement(viewportInput: ViewportInput): Promise<EnabledElement>;
-    renderViewports(viewportIds: string[]): void;
+  export interface StackViewport {
+    setStack(imageIds: string[]): Promise<void>;
+    setCamera(options: { reset?: boolean }): void;
+    getCurrentImageIdIndex(): number;
+    addLayer(options: {
+      imageIds: string[];
+      options: {
+        opacity: number;
+        colormap: string;
+        data: number[];
+      };
+    }): void;
+    voi: {
+      windowCenter: number;
+      windowWidth: number;
+    };
   }
 
-  export class StackViewport {
-    setStack: (imageIds: string[]) => Promise<void>;
-    setCamera: (options: { reset?: boolean }) => void;
-  }
-
-  export class VolumeViewport {
+  export interface VolumeViewport {
     setVolumes(volumes: Array<{
       volumeId: string;
       callback?: (props: { volumeActor: any }) => void;
@@ -26,9 +29,18 @@ declare module '@cornerstonejs/core' {
     render(): void;
   }
 
+  export class RenderingEngine {
+    constructor(id: string);
+    destroy(): void;
+    setViewports(viewportInputs: ViewportInput[]): Promise<void>;
+    getViewport(viewportId: string): StackViewport | VolumeViewport;
+    render(): void;
+    enableElement(viewport: ViewportInput): Promise<void>;
+  }
+
   export function enable(element: HTMLElement): Promise<void>;
   export function disable(element: HTMLElement): void;
-  export function getViewport(element: HTMLElement): any;
+  export function getViewport(element: HTMLElement): StackViewport | VolumeViewport;
   export function setViewport(element: HTMLElement, viewport: any): void;
   export function displayImage(element: HTMLElement, image: any): Promise<void>;
   export function createImageStack(arrayBuffer: ArrayBuffer): Promise<any[]>;
@@ -36,19 +48,13 @@ declare module '@cornerstonejs/core' {
   export function displayVolume(element: HTMLElement, volume: any, options: any): Promise<void>;
 
   export const cache: {
-    getVolume(volumeId: string): {
-      dimensions: number[];
-    };
+    getVolume(volumeId: string): { dimensions: number[] };
+    purgeCache(): void;
   };
 
   export const volumeLoader: {
-    createAndCacheVolume(volumeId: string, options: {
-      imageIds: string[];
-      dimensions: number[];
-      spacing: number[];
-      orientation: number[];
-      voxelData: ArrayBuffer;
-    }): Promise<any>;
+    createAndCacheVolume(volumeId: string, options: VolumeOptions): Promise<any>;
+    registerVolumeLoader(scheme: string, loader: VolumeLoader): void;
   };
 
   export const imageLoader: {
@@ -62,7 +68,7 @@ declare module '@cornerstonejs/core' {
   ): Promise<void>;
 
   export const utilities: any;
-  export const init: () => Promise<void>;
+  export function init(): Promise<void>;
 
   export interface ImageVolume {
     dimensions: number[];
@@ -105,21 +111,33 @@ declare module '@cornerstonejs/core' {
     viewport: VolumeViewport;
   }
 
-  export namespace Enums {
-    enum ViewportType {
-      ORTHOGRAPHIC = 'ORTHOGRAPHIC',
-      PERSPECTIVE = 'PERSPECTIVE'
-    }
-    
-    enum OrientationAxis {
-      AXIAL = 'AXIAL',
-      SAGITTAL = 'SAGITTAL',
-      CORONAL = 'CORONAL'
-    }
+  export interface VolumeOptions {
+    imageIds: string[];
+    dimensions: number[];
+    spacing: number[];
+    orientation: number[];
+    voxelData: ArrayBuffer;
+  }
+
+  export interface VolumeLoadObject {
+    volumeId: string;
+    dimensions: number[];
+    spacing: number[];
+    orientation: number[];
+    scalarData: Float32Array;
+    metadata?: Record<string, any>;
   }
 }
 
 declare module '@cornerstonejs/tools' {
+  export interface ToolGroup {
+    addTool(toolName: string): void;
+    setToolActive(toolName: string, options?: {
+      mouseButtonMask?: number;
+      isTouchActive?: boolean;
+    }): void;
+  }
+
   export const Tools: {
     ToolGroupManager: {
       createToolGroup(name: string): ToolGroup;
@@ -128,23 +146,11 @@ declare module '@cornerstonejs/tools' {
     PanTool: { toolName: string };
     ZoomTool: { toolName: string };
     StackScrollMouseWheelTool: { toolName: string };
-    VolumeRotateMouseWheelTool: { toolName: string };
   };
 
-  export class ToolGroup {
-    addTool(toolName: string): void;
-    setToolActive(toolName: string): void;
-  }
+  export function init(): Promise<void>;
+}
 
-  export function init(config?: any): void;
-  export function addTool(tool: any): void;
-  export function setToolActive(toolName: string, options: any): void;
-  
-  export const WwwcTool: any;
-  export const ZoomTool: any;
-  export const PanTool: any;
-  export const LengthTool: any;
-  export const AngleTool: any;
-  export const Enums: any;
-  export const utilities: any;
+interface VolumeLoader {
+  (volumeId: string, options?: any): Promise<VolumeLoadObject>;
 } 

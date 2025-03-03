@@ -9,6 +9,12 @@ import {
   SearchResult
 } from '../types/medical';
 import { logger } from '../utils/logger';
+import * as cornerstone from '@cornerstonejs/core';
+import { imageLoader } from '@cornerstonejs/core';
+import { volumeLoader } from '@cornerstonejs/core';
+import { VolumeLoadObject } from '@cornerstonejs/core';
+import * as dicomImageLoader from '@cornerstonejs/dicom-image-loader';
+import { init as csTools3dInit } from '@cornerstonejs/tools';
 
 // Ta bort import från dicom.ts och använd convertStudy direkt här
 const convertStudy = (study: DicomStudy): DicomStudy => {
@@ -61,6 +67,26 @@ interface ImageResponse {
   columns: number;
   windowCenter: number;
   windowWidth: number;
+}
+
+interface ImageBatchResponse {
+  images: {
+    instanceId: string;
+    pixelData: number[][];
+    rows: number;
+    columns: number;
+    windowCenter: number;
+    windowWidth: number;
+  }[];
+  total: number;
+  start: number;
+  count: number;
+}
+
+interface ImageLoaderResult {
+  promise: Promise<Record<string, any>>;
+  cancelFn?: () => void;
+  decache?: () => void;
 }
 
 export class DicomService {
@@ -340,6 +366,137 @@ export class DicomService {
       console.error('[DicomService] Routing test failed:', error);
       throw this.handleError(error, 'Routing test failed');
     }
+  }
+
+  async getImageBatch(seriesId: string, start: number, count: number): Promise<ImageBatchResponse> {
+    try {
+      const response = await axios.get(
+        `${this.baseUrl}/images/batch/${seriesId}`, {
+          params: { start, count }
+        }
+      );
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error, 'Failed to fetch image batch');
+    }
+  }
+
+  async getSeriesImageIds(seriesId: string): Promise<string[]> {
+    try {
+      const series = await this.getSeries(seriesId);
+      if (!series?.instances) {
+        throw new Error('No instances found');
+      }
+
+      // Skapa Cornerstone imageIds
+      return series.instances.map(instance => 
+        `wadouri:${this.baseUrl}/image?path=${encodeURIComponent(instance.file_path)}`
+      );
+    } catch (error) {
+      throw this.handleError(error, 'Failed to get series image IDs');
+    }
+  }
+
+  // Lägg till getSeries metod
+  async getSeries(seriesId: string): Promise<DicomSeries> {
+    const response = await axios.get(`${this.baseUrl}/series/${seriesId}`);
+    return response.data;
+  }
+
+  // Uppdatera registerImageLoader
+  registerImageLoader() {
+    // För Cornerstone3D använder vi volumeLoader istället
+    volumeLoader.registerVolumeLoader('cornerstoneStreamingImageVolume', this.loadVolume.bind(this));
+  }
+
+  private async loadVolume(volumeId: string, options: any): Promise<VolumeLoadObject> {
+    try {
+      const seriesId = volumeId.split(':')[1];
+      const series = await this.getSeries(seriesId);
+      
+      // Konvertera spacing till number[]
+      const spacing = series.instances[0].pixel_spacing?.split('\\').map(Number) || [1, 1, 1];
+      
+      // Ladda alla instances för serien
+      const instances = await Promise.all(
+        series.instances.map(async instance => {
+          const response = await axios.get(
+            `${this.baseUrl}/cornerstone/${series.series_instance_uid}?path=${instance.file_path}`,
+            { responseType: 'arraybuffer' }
+          );
+          return response.data;
+        })
+      );
+
+      // Skapa volymdata
+      const dimensions = [
+        series.instances[0].columns || 512,
+        series.instances[0].rows || 512,
+        series.instances.length
+      ];
+
+      // Kombinera alla instances till en volym
+      const voxelData = new Float32Array(
+        dimensions[0] * dimensions[1] * dimensions[2]
+      );
+
+      instances.forEach((buffer, index) => {
+        const view = new Float32Array(buffer);
+        const offset = index * dimensions[0] * dimensions[1];
+        voxelData.set(view, offset);
+      });
+
+      return {
+        volumeId,
+        dimensions,
+        spacing: spacing,  // Nu är detta alltid number[]
+        orientation: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        scalarData: voxelData,
+        metadata: {
+          Modality: series.modality,
+          SeriesInstanceUID: series.series_instance_uid
+        }
+      };
+    } catch (error) {
+      throw this.handleError(error, 'Failed to load volume');
+    }
+  }
+
+  async getImageIds(seriesInstanceUid: string): Promise<string[]> {
+    const response = await axios.get(`/api/dicom/series/${seriesInstanceUid}/instances`);
+    const instances = response.data;
+    
+    return instances.map((instance: any) => 
+      `dicom:/api/dicom/instances/${instance.sop_instance_uid}`
+    );
+  }
+
+  async loadAndCacheImage(imageId: string) {
+    const response = await fetch(imageId);
+    const arrayBuffer = await response.arrayBuffer();
+    return cornerstone.imageLoader.createAndCacheLocalImage(imageId, arrayBuffer);
+  }
+
+  async initialize() {
+    // Initiera Cornerstone3D
+    await cornerstone.init();
+    await csTools3dInit();
+
+    // Registrera metadata provider
+    cornerstone.metaData.addProvider((type: string, imageId: string) => {
+      return {
+        imagePixelModule: {
+          samplesPerPixel: 1,
+          photometricInterpretation: 'MONOCHROME2',
+          rows: 512,
+          columns: 512,
+          bitsAllocated: 16,
+          bitsStored: 16,
+          highBit: 15,
+          pixelRepresentation: 0,
+        }
+      };
+    });
   }
 
   private handleError(error: unknown, defaultMessage = 'An error occurred'): Error {

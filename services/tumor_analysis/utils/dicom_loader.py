@@ -51,6 +51,61 @@ class DicomLoader:
             
         return response.json()
 
+    def load_multisequence_data(self, study_id: str) -> List[np.ndarray]:
+        """
+        Ladda alla relevanta MRI-sekvenser för MGMT-prediktion
+        
+        Args:
+            study_id: Study identifier
+            
+        Returns:
+            List[np.ndarray]: Lista med preprocessade sekvenser [T1, T1c, T2, FLAIR]
+        """
+        try:
+            # Hämta alla serier för studien
+            response = requests.get(
+                f"{self.imaging_service_url}/study/{study_id}/series"
+            )
+            if not response.ok:
+                raise Exception("Failed to get study series")
+            
+            series_list = response.json()
+            
+            # Identifiera och ladda varje sekvenstyp
+            sequences = []
+            required_types = ['T1', 'T1C', 'T2', 'FLAIR']
+            
+            for seq_type in required_types:
+                series = self._find_sequence_series(series_list, seq_type)
+                if not series:
+                    raise Exception(f"Missing required sequence: {seq_type}")
+                
+                # Ladda och preprocessa sekvensen
+                preprocessed = self.load_dicom_series(series['series_id'])
+                sequences.append(preprocessed)
+            
+            return sequences
+            
+        except Exception as e:
+            raise Exception(f"Error loading multisequence data: {str(e)}")
+
+    def _find_sequence_series(self, series_list: List[Dict], seq_type: str) -> Optional[Dict]:
+        """Hitta serie som matchar önskad sekvenstyp"""
+        for series in series_list:
+            if self._match_sequence_type(series['description'], seq_type):
+                return series
+        return None
+
+    def _match_sequence_type(self, description: str, seq_type: str) -> bool:
+        """Matcha seriesbeskrivning mot sekvenstyp"""
+        description = description.lower()
+        if seq_type == 'T1C':
+            return 't1' in description and any(x in description for x in ['gd', 'contrast'])
+        elif seq_type == 'FLAIR':
+            return 'flair' in description
+        else:
+            return seq_type.lower() in description
+
 # Create singleton instance
 dicom_loader = DicomLoader()
 
