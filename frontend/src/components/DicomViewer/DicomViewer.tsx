@@ -21,24 +21,20 @@ import { ViewportType, OrientationAxis } from '../../types/cornerstoneEnums';
 import { 
   RenderingEngine,
   Types,
-  volumeLoader,
   Enums,
   cache as cornerstoneCache
 } from '@cornerstonejs/core';
-import { 
-  ToolGroupManager,
-  Tools
+import {
+  ToolGroupManager
 } from '@cornerstonejs/tools';
-import { FaHome, FaSearch, FaBrain, FaChartLine } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
+import { FaHome, FaSearch, FaBrain, FaChartLine } from 'react-icons/fa';
 
-// Ta bort individuella verktygsimporter och använd Tools istället
-const { 
-  WindowLevelTool, 
-  PanTool, 
-  ZoomTool, 
-  StackScrollMouseWheelTool 
-} = Tools;
+// Definiera verktygskonstanter
+const WindowLevelToolName = 'WindowLevel';
+const PanToolName = 'Pan';
+const ZoomToolName = 'Zoom';
+const StackScrollToolName = 'StackScroll';
 
 // Styled components
 const MainContainer = styled.div`
@@ -293,7 +289,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
   const originalPixelDataRef = useRef<ImageData | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   
-  const navigate = useNavigate();
+
 
   useEffect(() => {
     loadPatients();
@@ -842,57 +838,55 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
 
   // Lägg till hantering av segmenteringsmasken
   useEffect(() => {
-    if (!showSegmentation || !segmentationMask || !axialRef.current) return;
+    if (!showSegmentation || !segmentationMask || !axialRef.current || !renderingEngine) return;
 
-    const viewport = cornerstone.getViewport(axialRef.current) as Types.IStackViewport;
+    const viewport = renderingEngine.getViewport('axial-viewport') as Types.IStackViewport;
     if (!viewport) return;
 
-    viewport.addLayer({
-      imageIds: ['segmentation'],
-      options: {
-        opacity: 0.5,
-        colormap: 'hot',
-        data: segmentationMask
-      }
-    });
-  }, [segmentationMask, showSegmentation]);
+    // Kontrollera att viewport är en StackViewport innan du använder addLayer
+    if ('addLayer' in viewport) {
+      viewport.addLayer({
+        imageIds: ['segmentation'],
+        options: {
+          opacity: 0.5,
+          colormap: 'hsv',
+          data: segmentationMask
+        }
+      });
+    }
+  }, [segmentationMask, showSegmentation, renderingEngine]);
 
   // Initiera Cornerstone
   useEffect(() => {
     const init = async () => {
       try {
-        // Initiera Cornerstone3D
         await cornerstone.init();
         await cornerstoneTools.init();
 
-        // Skapa rendering engine
         const engine = new cornerstone.RenderingEngine('dicom-viewer');
         setRenderingEngine(engine);
 
-        // Registrera image loader
         dicomService.registerImageLoader();
 
-        // Skapa tool group
         const toolGroup = ToolGroupManager.createToolGroup('default');
         if (!toolGroup) return;
 
-        // Lägg till verktyg
-        toolGroup.addTool(WindowLevelTool.toolName);
-        toolGroup.addTool(PanTool.toolName);
-        toolGroup.addTool(ZoomTool.toolName);
-        toolGroup.addTool(StackScrollMouseWheelTool.toolName);
+        // Använd verktygen direkt
+        toolGroup.addTool(WindowLevelToolName);
+        toolGroup.addTool(PanToolName);
+        toolGroup.addTool(ZoomToolName);
+        toolGroup.addTool(StackScrollToolName);
 
-        // Aktivera verktyg
-        toolGroup.setToolActive(Tools.WindowLevelTool.toolName, {
+        toolGroup.setToolActive(WindowLevelToolName, {
           mouseButtonMask: 1
         });
-        toolGroup.setToolActive(Tools.PanTool.toolName, {
+        toolGroup.setToolActive(PanToolName, {
           mouseButtonMask: 2
         });
-        toolGroup.setToolActive(Tools.ZoomTool.toolName, {
+        toolGroup.setToolActive(ZoomToolName, {
           mouseButtonMask: 4
         });
-        toolGroup.setToolActive(Tools.StackScrollMouseWheelTool.toolName);
+        toolGroup.setToolActive(StackScrollToolName);
 
       } catch (error) {
         console.error('Error initializing Cornerstone3D:', error);
@@ -932,25 +926,6 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
 
   return (
     <ViewerContainer>
-      <SideNav>
-        <SideNavItem onClick={() => navigate('/')}>
-          <FaHome />
-          <span>Home</span>
-        </SideNavItem>
-        <SideNavItem onClick={() => navigate('/patient-explorer')}>
-          <FaSearch />
-          <span>Patient Explorer</span>
-        </SideNavItem>
-        <SideNavItem onClick={() => navigate('/tumor-analysis')}>
-          <FaBrain />
-          <span>Tumor Analysis</span>
-        </SideNavItem>
-        <SideNavItem onClick={() => navigate('/statistics')}>
-          <FaChartLine />
-          <span>Statistics</span>
-        </SideNavItem>
-      </SideNav>
-
       <MainContainer>
         <SidePanel>
           <ListContainer>

@@ -9,10 +9,15 @@ import {
   SearchResult
 } from '../types/medical';
 import { logger } from '../utils/logger';
+// @ts-ignore - Saknade typdeklarationer för Cornerstone-bibliotek
 import * as cornerstone from '@cornerstonejs/core';
+// @ts-ignore
 import { imageLoader } from '@cornerstonejs/core';
+// @ts-ignore
 import { volumeLoader } from '@cornerstonejs/core';
+// @ts-ignore
 import { VolumeLoadObject } from '@cornerstonejs/core';
+// @ts-ignore
 import * as dicomImageLoader from '@cornerstonejs/dicom-image-loader';
 import { init as csTools3dInit } from '@cornerstonejs/tools';
 
@@ -108,7 +113,7 @@ export class DicomService {
           responseType: 'text',
           timeout: 0,  // Disable timeout
           onDownloadProgress: (progressEvent) => {
-            const text = progressEvent.currentTarget.responseText;
+            const text = progressEvent.event?.target?.responseText || '';
             const lines = text.split('\n').filter((line: string) => line.trim());
             
             // Process only the last line for progress
@@ -503,7 +508,7 @@ export class DicomService {
     if (axios.isAxiosError(error)) {
       const axiosError = error as AxiosError;
       return new Error(
-        axiosError.response?.data?.message || 
+        axiosError.response?.data?.message as string || 
         axiosError.message || 
         defaultMessage
       );
