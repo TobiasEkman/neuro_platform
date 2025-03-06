@@ -2,6 +2,9 @@
 ====================
 
 To do:
+
+- Fixa cornerston3D, kanske ta bort hela dicom viewer
+- Uppdatera @imaging_data att skicka rätt data
 - Currently working on implementing cornerstone3D in the dicom viewer
 - Improve tumor analysis service
 - Better dicom viewer, for example through batch up 
