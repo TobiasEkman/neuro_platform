@@ -72,8 +72,43 @@ def handle_patient_by_pid(pid):
 def bulk_update():
     try:
         data = request.json
-        # Implementera bulk update logik
-        return jsonify({'message': 'Bulk update successful'})
+        patients = data.get('patients', [])
+        
+        results = []
+        for patient_data in patients:
+            pid = patient_data.get('pid')
+            
+            if not pid:
+                # Skapa en ny patient
+                result = db.patients.insert_one(patient_data)
+                results.append({
+                    'pid': pid,
+                    'status': 'created',
+                    '_id': str(result.inserted_id)
+                })
+            else:
+                # Uppdatera en befintlig patient
+                result = db.patients.update_one(
+                    {'patient_id': pid},
+                    {'$set': patient_data},
+                    upsert=True
+                )
+                
+                if result.matched_count:
+                    results.append({
+                        'pid': pid,
+                        'status': 'updated'
+                    })
+                else:
+                    results.append({
+                        'pid': pid,
+                        'status': 'created'
+                    })
+        
+        return jsonify({
+            'message': f'Processed {len(results)} patients',
+            'results': results
+        })
     except Exception as e:
         logger.error(f"Error: {e}")
         return jsonify({'error': str(e)}), 500

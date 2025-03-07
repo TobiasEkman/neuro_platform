@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { patientService } from '../../services/patientService';
-import { FaSort, FaSortUp, FaSortDown, FaSearch, FaUpload } from 'react-icons/fa';
+import { FaSort, FaSortUp, FaSortDown, FaSearch, FaUpload, FaExclamationTriangle, FaCheck } from 'react-icons/fa';
 import { DicomManager } from '../DicomManager';
 import { mockPatients } from '../../utils/mockData';
+import { DicomPatientSummary } from '../../types/medical';
 
 const Container = styled.div`
   padding: 2rem;
@@ -60,7 +61,7 @@ const Td = styled.td`
   color: ${props => props.theme.colors.text.secondary};
 `;
 
-const Button = styled.button`
+const PrimaryButton = styled.button`
   padding: 0.5rem 1rem;
   border-radius: 4px;
   border: none;
@@ -71,6 +72,19 @@ const Button = styled.button`
 
   &:hover {
     opacity: 0.9;
+  }
+`;
+
+const Button = styled.button<{ primary?: boolean }>`
+  padding: 8px 16px;
+  background: ${props => props.primary ? props.theme.colors.primary : 'white'};
+  color: ${props => props.primary ? 'white' : props.theme.colors.text.primary};
+  border: 1px solid ${props => props.primary ? props.theme.colors.primary : props.theme.colors.border};
+  border-radius: 4px;
+  cursor: pointer;
+  
+  &:hover {
+    background: ${props => props.primary ? props.theme.colors.primaryDark : '#f5f5f5'};
   }
 `;
 
@@ -155,6 +169,64 @@ const FileUpload = styled.div`
   text-align: center;
 `;
 
+const ConfirmationDialog = styled.div`
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+`;
+
+const DialogContent = styled.div`
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  max-width: 80%;
+  max-height: 80vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+`;
+
+const DialogTitle = styled.h3`
+  margin: 0;
+  color: ${props => props.theme.colors.text.primary};
+`;
+
+const PatientList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+`;
+
+const PatientItem = styled.div<{ isNew: boolean }>`
+  display: flex;
+  align-items: center;
+  padding: 10px;
+  background: ${props => props.isNew ? '#e6f7ff' : '#f0f0f0'};
+  border-radius: 4px;
+  border-left: 4px solid ${props => props.isNew ? '#1890ff' : '#52c41a'};
+`;
+
+const PatientIcon = styled.div`
+  margin-right: 10px;
+  color: ${props => props.theme.colors.primary};
+`;
+
+const ButtonGroup = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+`;
+
 interface Patient {
   _id: string;
   name: string;
@@ -178,6 +250,13 @@ interface PatientData {
   operativeDate?: string;
 }
 
+interface PatientConfirmation {
+  patientId: string;
+  name?: string;
+  isNew: boolean;
+  mgmtStatus?: string;
+}
+
 export const PatientExplorer: React.FC = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
@@ -198,6 +277,10 @@ export const PatientExplorer: React.FC = () => {
     diagnosis: '',
     mgmtStatus: 'Unknown'
   });
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  const [patientsToConfirm, setPatientsToConfirm] = useState<PatientConfirmation[]>([]);
+  const [pendingUploadData, setPendingUploadData] = useState<any>(null);
+  const [pendingUploadType, setPendingUploadType] = useState<'single' | 'bulk'>('single');
   
   const ITEMS_PER_PAGE = 10;
 
@@ -301,41 +384,104 @@ export const PatientExplorer: React.FC = () => {
 
   const handleSingleUpload = async () => {
     try {
-      await patientService.updatePatient(uploadData.pid!, uploadData);
-      setShowUploadModal(false);
-      // Refresh patient list
-      refreshPatients();
-    } catch (err) {
-      console.error('Upload error:', err);
+      // Kontrollera om patienten redan finns
+      const existingPatients = await patientService.getPatients();
+      const existingPatient = existingPatients.find((p: DicomPatientSummary) => p.patient_id === uploadData.pid);
+      
+      // Skapa en lista över patienter som ska bekräftas
+      const patientToConfirm: PatientConfirmation = {
+        patientId: uploadData.pid || 'New Patient',
+        name: existingPatient?.name || 'Unknown',
+        isNew: !existingPatient,
+        mgmtStatus: uploadData.mgmtStatus
+      };
+      
+      setPatientsToConfirm([patientToConfirm]);
+      setPendingUploadData(uploadData);
+      setPendingUploadType('single');
+      setShowConfirmation(true);
+    } catch (error) {
+      console.error('Error preparing upload:', error);
+      showToast('Failed to prepare upload', 'error');
     }
   };
 
   const handleBulkUpload = async (file: File) => {
     try {
+      // Läs CSV-filen
       const reader = new FileReader();
       reader.onload = async (e) => {
-        const text = e.target?.result;
-        const rows = text?.toString().split('\n');
-        if (!rows) return;
-
-        const patients = rows.slice(1).map(row => {
-          const [name, age, diagnosis, mgmtStatus] = row.split(',');
+        const text = e.target?.result as string;
+        const rows = text.split('\n');
+        const headers = rows[0].split(',');
+        
+        // Skapa en lista över patienter från CSV
+        const patients: PatientData[] = [];
+        for (let i = 1; i < rows.length; i++) {
+          const values = rows[i].split(',');
+          if (values.length === headers.length) {
+            const patient: any = {};
+            headers.forEach((header, index) => {
+              patient[header.trim()] = values[index].trim();
+            });
+            patients.push(patient as PatientData);
+          }
+        }
+        
+        // Hämta befintliga patienter för att jämföra
+        const existingPatients = await patientService.getPatients();
+        
+        // Skapa en lista över patienter som ska bekräftas
+        const patientsToConfirm: PatientConfirmation[] = patients.map(p => {
+          const existingPatient = existingPatients.find((ep: DicomPatientSummary) => ep.patient_id === p.pid);
           return {
-            name: name.trim(),
-            age: parseInt(age),
-            diagnosis: diagnosis.trim(),
-            mgmtStatus: mgmtStatus?.trim() as 'Methylated' | 'Unmethylated' | 'Unknown'
+            patientId: p.pid || 'New Patient',
+            name: p.name,
+            isNew: !existingPatient,
+            mgmtStatus: p.mgmtStatus
           };
         });
-
-        await patientService.bulkUpdate(patients);
-        setShowUploadModal(false);
-        refreshPatients();
+        
+        setPatientsToConfirm(patientsToConfirm);
+        setPendingUploadData(patients);
+        setPendingUploadType('bulk');
+        setShowConfirmation(true);
       };
       reader.readAsText(file);
-    } catch (err) {
-      console.error('Bulk upload error:', err);
+    } catch (error) {
+      console.error('Error processing CSV:', error);
+      showToast('Failed to process CSV file', 'error');
     }
+  };
+
+  const handleConfirmUpload = async () => {
+    try {
+      if (pendingUploadType === 'single') {
+        // Uppdatera en enskild patient
+        await patientService.updatePatient(pendingUploadData.pid, pendingUploadData);
+        showToast('Patient updated successfully', 'success');
+      } else {
+        // Uppdatera flera patienter
+        await patientService.bulkUpdatePatients(pendingUploadData);
+        showToast('Patients updated successfully', 'success');
+      }
+      
+      // Stäng dialogen och uppdatera listan
+      setShowConfirmation(false);
+      setPendingUploadData(null);
+      setPatientsToConfirm([]);
+      setShowUploadModal(false);
+      refreshPatients();
+    } catch (error) {
+      console.error('Error uploading patients:', error);
+      showToast('Failed to upload patients', 'error');
+    }
+  };
+  
+  const handleCancelUpload = () => {
+    setShowConfirmation(false);
+    setPendingUploadData(null);
+    setPatientsToConfirm([]);
   };
 
   const handleSelectPatient = (patient: Patient) => {
@@ -536,6 +682,38 @@ export const PatientExplorer: React.FC = () => {
         </UploadModal>
       )}
 
+      {showConfirmation && (
+        <ConfirmationDialog>
+          <DialogContent>
+            <DialogTitle>Confirm Patient Update</DialogTitle>
+            
+            <div>
+              The following patients will be affected by this update:
+            </div>
+            
+            <PatientList>
+              {patientsToConfirm.map(patient => (
+                <PatientItem key={patient.patientId} isNew={patient.isNew}>
+                  <PatientIcon>
+                    {patient.isNew ? <FaExclamationTriangle /> : <FaCheck />}
+                  </PatientIcon>
+                  <div>
+                    <strong>Patient ID: {patient.patientId}</strong>
+                    {patient.name && <div>Name: {patient.name}</div>}
+                    {patient.mgmtStatus && <div>MGMT Status: {patient.mgmtStatus}</div>}
+                    <div>{patient.isNew ? 'New patient will be created' : 'Existing patient will be updated'}</div>
+                  </div>
+                </PatientItem>
+              ))}
+            </PatientList>
+            
+            <ButtonGroup>
+              <Button onClick={handleCancelUpload}>Cancel</Button>
+              <Button primary onClick={handleConfirmUpload}>Confirm Update</Button>
+            </ButtonGroup>
+          </DialogContent>
+        </ConfirmationDialog>
+      )}
 
     </Container>
   );

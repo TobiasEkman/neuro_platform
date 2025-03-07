@@ -8,6 +8,14 @@ import { DicomModel } from '../models/DicomModel';
 import PatientModel from '../models/Patient';
 import Study from '../models/Study';
 
+// Lägg till dessa typdefinitioner för DicomViewerProps
+export interface DicomViewerProps {
+  seriesId: string | undefined;
+  segmentationMask: number[] | null;
+  showSegmentation: boolean;
+  onSeriesSelect?: (seriesId: string) => void;
+}
+
 const router = Router();
 
 const IMAGING_SERVICE_URL = process.env.IMAGING_SERVICE_URL || 'http://localhost:5003';
@@ -437,6 +445,40 @@ router.get('/studies', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching studies:', error);
     res.status(500).json({ error: 'Failed to fetch studies' });
+  }
+});
+
+// Lägg till dessa endpoints
+router.post('/analyze', async (req: Request, res: Response) => {
+  try {
+    const response = await axios.post(
+      `${IMAGING_SERVICE_URL}/dicom/analyze`,
+      req.body
+    );
+    res.json(response.data);
+  } catch (err) {
+    handleServiceError(err, res);
+  }
+});
+
+router.post('/import', async (req: Request, res: Response) => {
+  try {
+    const response = await axios.post(
+      `${IMAGING_SERVICE_URL}/dicom/import`,
+      req.body
+    );
+    res.json(response.data);
+  } catch (err) {
+    handleServiceError(err, res);
+  }
+});
+
+router.get('/patients', async (req: Request, res: Response) => {
+  try {
+    const response = await axios.get(`${IMAGING_SERVICE_URL}/patients`);
+    res.json(response.data);
+  } catch (err) {
+    handleServiceError(err, res);
   }
 });
 

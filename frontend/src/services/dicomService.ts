@@ -6,7 +6,8 @@ import {
   DicomImportResult, 
   VolumeData,
   WindowPreset,
-  SearchResult
+  SearchResult,
+  DicomPatientSummary
 } from '../types/medical';
 import { logger } from '../utils/logger';
 // @ts-ignore - Saknade typdeklarationer för Cornerstone-bibliotek
@@ -94,9 +95,26 @@ interface ImageLoaderResult {
   decache?: () => void;
 }
 
+// Definiera egna typer för att hantera Cornerstone API
+interface IImageLoadObject {
+  image: any;
+  imageId: string;
+}
+
+interface VolumeOptions {
+  imageIds: string[];
+  dimensions?: number[];
+  spacing?: number[];
+  orientation?: number[];
+  voxelData?: any;
+}
+
 export class DicomService {
-  // Använd direkt URL till backend
-  private baseUrl = 'http://localhost:4000/api/dicom';
+  private baseUrl: string;
+
+  constructor() {
+    this.baseUrl = '/api/dicom';
+  }
 
   // Main folder parsing method
   async parseDirectory(
@@ -373,14 +391,13 @@ export class DicomService {
     }
   }
 
-  async getImageBatch(seriesId: string, start: number, count: number): Promise<ImageBatchResponse> {
+  async getImageBatch(seriesId: string, startIndex: number, count: number): Promise<any[]> {
     try {
       const response = await axios.get(
-        `${this.baseUrl}/images/batch/${seriesId}`, {
-          params: { start, count }
-        }
+        `${this.baseUrl}/images/batch/${seriesId}`, 
+        { params: { start: startIndex, count } }
       );
-      return response.data;
+      return response.data.images;
     } catch (error) {
       throw this.handleError(error, 'Failed to fetch image batch');
     }
@@ -410,70 +427,75 @@ export class DicomService {
 
   // Uppdatera registerImageLoader
   registerImageLoader() {
-    // För Cornerstone3D använder vi volumeLoader istället
-    volumeLoader.registerVolumeLoader('cornerstoneStreamingImageVolume', this.loadVolume.bind(this));
+    // Använd any för att kringgå typkontroll
+    (cornerstone.imageLoader as any).registerImageLoader('dicom', this.loadImage.bind(this));
   }
 
-  private async loadVolume(volumeId: string, options: any): Promise<VolumeLoadObject> {
+  private async loadImage(imageId: string): Promise<IImageLoadObject> {
+    const filePath = imageId.replace('dicom://', '');
+    
     try {
-      const seriesId = volumeId.split(':')[1];
-      const series = await this.getSeries(seriesId);
-      
-      // Konvertera spacing till number[]
-      const spacing = series.instances[0].pixel_spacing?.split('\\').map(Number) || [1, 1, 1];
-      
-      // Ladda alla instances för serien
-      const instances = await Promise.all(
-        series.instances.map(async instance => {
-          const response = await axios.get(
-            `${this.baseUrl}/cornerstone/${series.series_instance_uid}?path=${instance.file_path}`,
-            { responseType: 'arraybuffer' }
-          );
-          return response.data;
-        })
-      );
-
-      // Skapa volymdata
-      const dimensions = [
-        series.instances[0].columns || 512,
-        series.instances[0].rows || 512,
-        series.instances.length
-      ];
-
-      // Kombinera alla instances till en volym
-      const voxelData = new Float32Array(
-        dimensions[0] * dimensions[1] * dimensions[2]
-      );
-
-      instances.forEach((buffer, index) => {
-        const view = new Float32Array(buffer);
-        const offset = index * dimensions[0] * dimensions[1];
-        voxelData.set(view, offset);
-      });
-
-      return {
-        volumeId,
-        dimensions,
-        spacing: spacing,  // Nu är detta alltid number[]
-        orientation: [1, 0, 0, 0, 1, 0, 0, 0, 1],
-        scalarData: voxelData,
-        metadata: {
-          Modality: series.modality,
-          SeriesInstanceUID: series.series_instance_uid
+      const response = await axios.get(
+        `${this.baseUrl}/image`,
+        { 
+          params: { path: filePath },
+          responseType: 'json'
         }
+      );
+      
+      const imageData = response.data;
+      
+      const image = {
+        imageId,
+        minPixelValue: 0,
+        maxPixelValue: 255,
+        slope: imageData.rescaleSlope || 1,
+        intercept: imageData.rescaleIntercept || 0,
+        windowCenter: imageData.windowCenter,
+        windowWidth: imageData.windowWidth,
+        getPixelData: () => {
+          const pixelData = new Uint16Array(imageData.rows * imageData.columns);
+          for (let y = 0; y < imageData.rows; y++) {
+            for (let x = 0; x < imageData.columns; x++) {
+              pixelData[y * imageData.columns + x] = imageData.pixelData[y][x];
+            }
+          }
+          return pixelData;
+        },
+        rows: imageData.rows,
+        columns: imageData.columns,
+        height: imageData.rows,
+        width: imageData.columns,
+        color: false,
+        columnPixelSpacing: imageData.pixelSpacing?.[0] || 1,
+        rowPixelSpacing: imageData.pixelSpacing?.[1] || 1,
+        sizeInBytes: imageData.rows * imageData.columns * 2
+      };
+      
+      return {
+        image,
+        imageId
       };
     } catch (error) {
-      throw this.handleError(error, 'Failed to load volume');
+      throw this.handleError(error, 'Failed to load image');
     }
   }
 
   async getImageIds(seriesInstanceUid: string): Promise<string[]> {
-    const response = await axios.get(`/api/dicom/series/${seriesInstanceUid}/instances`);
-    const instances = response.data;
-    
-    return instances.map((instance: any) => 
-      `dicom:/api/dicom/instances/${instance.sop_instance_uid}`
-    );
+    try {
+      // Hämta serien för att få instances
+      const series = await this.getSeries(seriesInstanceUid);
+      if (!series?.instances) {
+        throw new Error('No instances found');
+      }
+
+      // Skapa Cornerstone imageIds baserat på filsökvägar
+      return series.instances.map(instance => 
+        `dicom://${instance.file_path}`
+      );
+    } catch (error) {
+      throw this.handleError(error, 'Failed to get image IDs');
+    }
   }
 
   async loadAndCacheImage(imageId: string) {
@@ -502,6 +524,106 @@ export class DicomService {
         }
       };
     });
+  }
+
+  // Lägg till en prefetch-metod
+  async prefetchImages(imageIds: string[], priority = 0): Promise<void> {
+    imageIds.forEach(imageId => {
+      // Använd any för att kringgå typkontroll
+      (cornerstone.imageLoader as any).loadAndCacheImage(imageId);
+    });
+  }
+
+  // Lägg till en metod för att ladda hela volymen på en gång
+  async loadVolumeForSeries(seriesId: string): Promise<cornerstone.Types.IImageVolume> {
+    try {
+      const imageIds = await this.getImageIds(seriesId);
+      
+      // Skapa en volym med Cornerstone3D
+      // Använd any för att kringgå typkontroll
+      const volume = await (cornerstone.volumeLoader as any).createAndCacheVolume(
+        `volume-${seriesId}`,
+        {
+          imageIds,
+          // Lägg till dessa fält för att uppfylla VolumeOptions
+          dimensions: [512, 512, imageIds.length], // Standardvärden
+          spacing: [1, 1, 1], // Standardvärden
+          orientation: [1, 0, 0, 0, 1, 0, 0, 0, 1] // Identitetsmatris
+        } as VolumeOptions
+      );
+      
+      // Ladda volymen
+      await volume.load();
+      
+      return volume;
+    } catch (error) {
+      throw this.handleError(error, 'Failed to load volume');
+    }
+  }
+
+  // Analysera DICOM-katalog utan att spara till databasen
+  async analyzeDicomDirectory(
+    directoryPath: string, 
+    progressCallback?: (progress: { percentage: number }) => void
+  ): Promise<DicomImportResult> {
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/analyze`, 
+        { directory_path: directoryPath },
+        { 
+          onUploadProgress: (progressEvent) => {
+            if (progressCallback && progressEvent.total) {
+              const percentage = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+              progressCallback({ percentage });
+            }
+          }
+        }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error analyzing DICOM directory:', error);
+      throw error;
+    }
+  }
+
+  // Hämta alla patienter
+  async getAllPatients(): Promise<DicomPatientSummary[]> {
+    try {
+      const response = await axios.get(`${this.baseUrl}/patients`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching patients:', error);
+      throw error;
+    }
+  }
+
+  // Importera DICOM-data till databasen
+  async importDicomData(
+    directoryPath: string,
+    dicomData: any,
+    progressCallback?: (progress: { percentage: number }) => void
+  ): Promise<DicomImportResult> {
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/import`, 
+        { 
+          directory_path: directoryPath,
+          dicom_data: dicomData
+        },
+        { 
+          onUploadProgress: (progressEvent) => {
+            if (progressCallback && progressEvent.total) {
+              const percentage = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+              progressCallback({ percentage });
+            }
+          }
+        }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error importing DICOM data:', error);
+      throw error;
+    }
   }
 
   private handleError(error: unknown, defaultMessage = 'An error occurred'): Error {

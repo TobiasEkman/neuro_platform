@@ -124,6 +124,7 @@ export interface DicomStudy {
   series: DicomSeries[];
   _id: string;
   patient_id: string;
+  patient_name?: string;
   modalities: string[];  // Array av modaliteter
   num_series: number;    // Antal serier
   num_instances: number; // Antal instanser
@@ -176,4 +177,11 @@ export interface WindowPreset {
   name: string;
   windowCenter: number;
   windowWidth: number;
+}
+
+export interface DicomPatientSummary {
+  patient_id: string;
+  name?: string;
+  _id?: string;
+  studies?: string[];
 } 

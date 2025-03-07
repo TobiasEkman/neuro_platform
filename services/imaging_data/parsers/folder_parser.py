@@ -11,9 +11,10 @@ logger = logging.getLogger(__name__)
 PATIENT_SERVICE_URL = 'http://localhost:5008/api'
 
 class FolderParser(BaseParser):
-    def __init__(self, db):
+    def __init__(self, db, analyze_only=False):
         super().__init__(db)
         self.progress_callback = None
+        self.analyze_only = analyze_only
 
     def set_progress_callback(self, callback):
         """Set callback for progress updates"""
@@ -73,14 +74,25 @@ class FolderParser(BaseParser):
                         continue
 
             # Save results and return final response
-            studies = self._save_to_database(results)
-            
-            yield {
-                'complete': True,
-                'studies': studies,
-                'total_processed': processed_files,
-                'total_succeeded': len(results)
-            }
+            if self.analyze_only:
+                # Returnera bara resultaten utan att spara till databasen
+                yield {
+                    'complete': True,
+                    'studies': results,
+                    'total_processed': processed_files,
+                    'total_succeeded': len(results),
+                    'analyze_only': True
+                }
+            else:
+                # Spara till databasen som vanligt
+                studies = self._save_to_database(results)
+                
+                yield {
+                    'complete': True,
+                    'studies': studies,
+                    'total_processed': processed_files,
+                    'total_succeeded': len(results)
+                }
 
         except Exception as e:
             logger.error(f"Error parsing folder: {str(e)}", exc_info=True)

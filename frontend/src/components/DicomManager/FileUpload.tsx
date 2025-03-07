@@ -16,8 +16,7 @@ interface FileUploadProps {
 
 export const FileUpload: React.FC<FileUploadProps> = ({ 
   onDirectorySelect, 
-  disabled,
-  basePath 
+  disabled
 }) => {
   const [currentPath, setCurrentPath] = useState<string>('');
 
@@ -37,8 +36,9 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         onChange={(e) => {
           const files = e.target.files;
           if (files && files.length > 0) {
-            const path = files[0].webkitRelativePath.split('/')[0];
-            handleSelect(path);
+            // Använd den fullständiga sökvägen istället för bara katalognamnet
+            const fullPath = files[0].path || files[0].webkitRelativePath;
+            handleSelect(fullPath);
           }
         }}
       />
@@ -51,7 +51,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
       </UploadButton>
       {currentPath && (
         <PathDisplay>
-          Selected: {basePath ? `${basePath}/${currentPath}` : currentPath}
+          Selected: {currentPath}
         </PathDisplay>
       )}
     </UploadContainer>

@@ -107,5 +107,14 @@ export const patientService = {
         oxygen_saturation: 98,
         temperature: 37
     };
+  },
+
+  bulkUpdatePatients: async (patients: PatientData[]): Promise<void> => {
+    try {
+      await axios.post(`${baseUrl}/patients/bulk`, { patients });
+    } catch (error) {
+      console.error('Error bulk updating patients:', error);
+      throw error;
+    }
   }
 }; 

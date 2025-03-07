@@ -2,14 +2,15 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { DicomList } from './DicomList';
 import { 
   DicomStudy, 
-  DicomImportResult 
-} from '../../types/medical';  // Uppdatera import path
+  DicomImportResult,
+  DicomPatientSummary
+} from '../../types/medical';
 import dicomService from '../../services/dicomService';
 import { usePatient } from '../../hooks/usePatient';
 import { UploadSection } from './UploadSection';
 import { FileUpload } from './FileUpload';
 import styled from 'styled-components';
-import { FaSpinner, FaTimes } from 'react-icons/fa';
+import { FaSpinner, FaTimes, FaCheck, FaExclamationTriangle } from 'react-icons/fa';
 import { logger } from '../../utils/logger';
 
 // Add props interface
@@ -229,6 +230,86 @@ const ConfigSection = styled.div`
   }
 `;
 
+// Lägg till en ny komponent för bekräftelsedialog
+const ConfirmationDialog = styled.div`
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+`;
+
+const DialogContent = styled.div`
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  max-width: 80%;
+  max-height: 80vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+`;
+
+const DialogTitle = styled.h3`
+  margin: 0;
+  color: ${props => props.theme.colors.text.primary};
+`;
+
+const PatientList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+`;
+
+const PatientItem = styled.div<{ isNew: boolean }>`
+  display: flex;
+  align-items: center;
+  padding: 10px;
+  background: ${props => props.isNew ? '#e6f7ff' : '#f0f0f0'};
+  border-radius: 4px;
+  border-left: 4px solid ${props => props.isNew ? '#1890ff' : '#52c41a'};
+`;
+
+const PatientIcon = styled.div`
+  margin-right: 10px;
+  color: ${props => props.theme.colors.primary};
+`;
+
+const ButtonGroup = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+`;
+
+const Button = styled.button<{ primary?: boolean }>`
+  padding: 8px 16px;
+  background: ${props => props.primary ? props.theme.colors.primary : 'white'};
+  color: ${props => props.primary ? 'white' : props.theme.colors.text.primary};
+  border: 1px solid ${props => props.primary ? props.theme.colors.primary : props.theme.colors.border};
+  border-radius: 4px;
+  cursor: pointer;
+  
+  &:hover {
+    background: ${props => props.primary ? props.theme.colors.primaryDark : '#f5f5f5'};
+  }
+`;
+
+// Lägg till en ny typ för patientsammanfattning
+interface PatientConfirmation {
+  patientId: string;
+  name?: string;
+  isNew: boolean;
+  studyCount: number;
+}
+
 const DicomManager: React.FC<DicomManagerProps> = ({ 
   patientId,
   onUploadComplete
@@ -242,6 +323,12 @@ const DicomManager: React.FC<DicomManagerProps> = ({
   const [dicomPath, setDicomPath] = useState<string>(
     localStorage.getItem('lastDicomPath') || ''
   );
+  
+  // Lägg till state för bekräftelsedialog
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  const [patientsToConfirm, setPatientsToConfirm] = useState<PatientConfirmation[]>([]);
+  const [pendingDirectoryPath, setPendingDirectoryPath] = useState<string>('');
+  const [pendingDicomData, setPendingDicomData] = useState<any>(null);
 
   // Fetch studies when patientId changes
   useEffect(() => {
@@ -276,26 +363,68 @@ const DicomManager: React.FC<DicomManagerProps> = ({
       setError(null);
       setProgress(0);
       
-      // If we have a base path, make sure the selected path is under it
-      let fullPath = selectedPath;
-      if (dicomPath) {
-        // Remove the base path prefix if it's already there
-        const relativePath = selectedPath.replace(dicomPath, '').replace(/^[/\\]+/, '');
-        fullPath = `${dicomPath}/${relativePath}`;
-      }
-
-      console.log('[DicomManager] Processing directory:', fullPath);
+      // Analysera DICOM-data utan att spara till databasen
+      console.log('[DicomManager] Analyzing directory:', selectedPath);
       
-      const result = await dicomService.parseDirectory(fullPath, (progress) => {
+      // Ändra API-anropet för att bara analysera utan att spara
+      const result = await dicomService.analyzeDicomDirectory(selectedPath, (progress) => {
         setProgress(progress.percentage);
       });
       
       if (!result.studies || result.studies.length === 0) {
         setError('No DICOM files found in the selected directory');
+        setIsProcessing(false);
         return;
       }
       
-      // Refresh studies list
+      // Hämta befintliga patienter för att jämföra
+      const existingPatients = await dicomService.getAllPatients();
+      
+      // Skapa en lista över patienter som ska bekräftas
+      const patientMap = new Map<string, PatientConfirmation>();
+      
+      // Gruppera studier efter patient-ID
+      result.studies.forEach(study => {
+        const pid = study.patient_id;
+        if (!patientMap.has(pid)) {
+          const existingPatient = existingPatients.find(p => p.patient_id === pid);
+          patientMap.set(pid, {
+            patientId: pid,
+            name: (study as any).patient_name || 'Unknown',
+            isNew: !existingPatient,
+            studyCount: 1
+          });
+        } else {
+          const patient = patientMap.get(pid)!;
+          patient.studyCount++;
+          patientMap.set(pid, patient);
+        }
+      });
+      
+      // Konvertera Map till Array för state
+      setPatientsToConfirm(Array.from(patientMap.values()));
+      setPendingDirectoryPath(selectedPath);
+      setPendingDicomData(result);
+      setShowConfirmation(true);
+      
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to process directory');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+  
+  const handleConfirmImport = async () => {
+    try {
+      setShowConfirmation(false);
+      setIsProcessing(true);
+      
+      // Nu när användaren har bekräftat, importera data till databasen
+      const result = await dicomService.importDicomData(pendingDirectoryPath, pendingDicomData, (progress) => {
+        setProgress(progress.percentage);
+      });
+      
+      // Uppdatera studielisten
       const results = await dicomService.searchStudies(
         patientId ? `patient:${patientId}` : ''
       );
@@ -307,14 +436,25 @@ const DicomManager: React.FC<DicomManagerProps> = ({
       if (onUploadComplete) {
         onUploadComplete({
           ...result,
-          studies: result.studies || []  // Defaulta till tom array om undefined
+          studies: result.studies || []
         });
       }
+      
+      // Rensa pending data
+      setPendingDirectoryPath('');
+      setPendingDicomData(null);
+      
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to process directory');
+      setError(error instanceof Error ? error.message : 'Failed to import DICOM data');
     } finally {
       setIsProcessing(false);
     }
+  };
+  
+  const handleCancelImport = () => {
+    setShowConfirmation(false);
+    setPendingDirectoryPath('');
+    setPendingDicomData(null);
   };
 
   const handleStudySelect = useCallback((study: DicomStudy) => {
@@ -399,10 +539,7 @@ const DicomManager: React.FC<DicomManagerProps> = ({
         <UploadSection>
           <FileUpload 
             onDirectorySelect={(path) => {
-              // Use the configured base path if provided
-              const fullPath = dicomPath ? 
-                `${dicomPath}/${path}` : path;
-              handleDirectorySelect(fullPath);
+              handleDirectorySelect(path);
             }}
             disabled={isProcessing}
           />
@@ -420,6 +557,40 @@ const DicomManager: React.FC<DicomManagerProps> = ({
           onStudySelect={handleStudySelect}
         />
       </DicomManagerContainer>
+      
+      {/* Bekräftelsedialog */}
+      {showConfirmation && (
+        <ConfirmationDialog>
+          <DialogContent>
+            <DialogTitle>Confirm DICOM Import</DialogTitle>
+            
+            <div>
+              The following patients will be affected by this import:
+            </div>
+            
+            <PatientList>
+              {patientsToConfirm.map(patient => (
+                <PatientItem key={patient.patientId} isNew={patient.isNew}>
+                  <PatientIcon>
+                    {patient.isNew ? <FaExclamationTriangle /> : <FaCheck />}
+                  </PatientIcon>
+                  <div>
+                    <strong>Patient ID: {patient.patientId}</strong>
+                    {patient.name && <div>Name: {patient.name}</div>}
+                    <div>Studies: {patient.studyCount}</div>
+                    <div>{patient.isNew ? 'New patient will be created' : 'Existing patient will be updated'}</div>
+                  </div>
+                </PatientItem>
+              ))}
+            </PatientList>
+            
+            <ButtonGroup>
+              <Button onClick={handleCancelImport}>Cancel</Button>
+              <Button primary onClick={handleConfirmImport}>Confirm Import</Button>
+            </ButtonGroup>
+          </DialogContent>
+        </ConfirmationDialog>
+      )}
     </DicomManagerContainer>
   );
 };

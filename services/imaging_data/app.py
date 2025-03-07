@@ -12,12 +12,9 @@ import os
 import requests
 from werkzeug.utils import secure_filename
 import logging
-from preprocessors.mgmt_preprocessor import MGMTPreprocessor
 import re
 import json
 from bson import json_util
-from bson.objectid import ObjectId
-from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
@@ -52,7 +49,6 @@ except ServerSelectionTimeoutError as e:
     print(f"Failed to connect to MongoDB: {e}")
     db = None
 
-mgmt_preprocessor = MGMTPreprocessor(db)
 
 # Print all registered routes at startup
 print("Registered Routes:")
@@ -124,7 +120,7 @@ def parse_folder():
         }
     )
 
-@app.route('/search', methods=['GET'])
+
 @app.route('/api/dicom/search', methods=['GET'])
 def search_studies():
     try:
@@ -412,26 +408,7 @@ def upload_dicom():
         logger.error(f"Upload error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/preprocess/mgmt/<study_id>', methods=['GET'])
-def preprocess_mgmt(study_id):
-    """Preprocess MRI sequences for MGMT prediction"""
-    try:
-        # Validate required sequences exist
-        if not mgmt_preprocessor.validate_sequences(study_id):
-            return jsonify({
-                'error': 'Missing required sequences (T1, T1c, T2, FLAIR)'
-            }), 400
-            
-        # Prepare normalized sequences
-        sequences = mgmt_preprocessor.prepare_sequences(study_id)
-        
-        return jsonify({
-            'preprocessed_data': sequences.tolist(),
-            'study_id': study_id,
-            'sequence_types': ['T1', 'T1c', 'T2', 'FLAIR']
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -517,9 +494,7 @@ def debug_dicom():
         app.logger.error(f"Debug endpoint error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/test', methods=['GET'])
-def test():
-    return jsonify({'status': 'ok', 'message': 'Flask server is running'})
+
 
 @app.route('/api/dicom/window-presets', methods=['GET'])
 def get_window_presets():
@@ -684,6 +659,120 @@ def get_cornerstone_image():
 
     except Exception as e:
         logger.error(f"Error loading Cornerstone image: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+class DicomService:
+    def __init__(self, db):
+        self.db = db
+        
+    def analyze_directory(self, directory_path):
+        """Analyze DICOM directory without saving to database"""
+        try:
+            parser = FolderParser(db, analyze_only=True)
+            result = parser.parse(directory_path)
+            
+            # Extrahera patienter från resultatet
+            patients = {}
+            for item in result:
+                if 'studies' in item and item['studies']:
+                    for study in item['studies']:
+                        patient_id = study.get('patient_id')
+                        if patient_id and patient_id not in patients:
+                            patients[patient_id] = {
+                                'patient_id': patient_id,
+                                'name': study.get('patient_name', 'Unknown'),
+                                'studies': [study['study_instance_uid']]
+                            }
+                        elif patient_id:
+                            patients[patient_id]['studies'].append(study['study_instance_uid'])
+            
+            return {
+                'patients': list(patients.values()),
+                'studies': result.get('studies', [])
+            }
+        except Exception as e:
+            logger.error(f"Error analyzing DICOM directory: {str(e)}")
+            raise
+            
+    def import_dicom_data(self, directory_path, dicom_data):
+        """Import pre-analyzed DICOM data to database"""
+        try:
+            parser = FolderParser(db)
+            result = parser.parse(directory_path)
+            return result
+        except Exception as e:
+            logger.error(f"Error importing DICOM data: {str(e)}")
+            raise
+
+class PatientService:
+    def __init__(self, db):
+        self.db = db
+        
+    def get_all_patients(self):
+        """Get all patients"""
+        try:
+            patients = list(self.db.patients.find({}, {
+                "_id": 1, 
+                "patient_id": 1, 
+                "name": 1
+            }))
+            
+            # Konvertera ObjectId till string för JSON-serialisering
+            for patient in patients:
+                patient["_id"] = str(patient["_id"])
+                
+            return patients
+        except Exception as e:
+            logger.error(f"Error fetching patients: {str(e)}")
+            raise
+
+# Skapa instanser av tjänsterna
+dicom_service = DicomService(db)
+patient_service = PatientService(db)
+
+@app.route('/dicom/analyze', methods=['POST'])
+def analyze_dicom_directory():
+    """Analyze DICOM directory without saving to database"""
+    data = request.json
+    directory_path = data.get('directory_path')
+    
+    if not directory_path:
+        return jsonify({'error': 'No directory path provided'}), 400
+    
+    try:
+        # Analysera DICOM-filer utan att spara till databasen
+        result = dicom_service.analyze_directory(directory_path)
+        return jsonify(result)
+    except Exception as e:
+        app.logger.error(f"Error analyzing DICOM directory: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/dicom/import', methods=['POST'])
+def import_dicom_data():
+    """Import pre-analyzed DICOM data to database"""
+    data = request.json
+    directory_path = data.get('directory_path')
+    dicom_data = data.get('dicom_data')
+    
+    if not directory_path or not dicom_data:
+        return jsonify({'error': 'Missing required data'}), 400
+    
+    try:
+        # Importera DICOM-data till databasen
+        result = dicom_service.import_dicom_data(directory_path, dicom_data)
+        return jsonify(result)
+    except Exception as e:
+        app.logger.error(f"Error importing DICOM data: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/patients', methods=['GET'])
+def get_patients():
+    """Get all patients"""
+    try:
+        patients = patient_service.get_all_patients()
+        return jsonify(patients)
+    except Exception as e:
+        app.logger.error(f"Error fetching patients: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
