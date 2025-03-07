@@ -493,37 +493,7 @@ const DicomManager: React.FC<DicomManagerProps> = ({
     <DicomManagerContainer>
       <h2>DICOM Management</h2>
       
-      <ConfigSection>
-        <div className="path-input-container">
-          <label>
-            DICOM Base Directory:
-            <input 
-              type="text" 
-              value={dicomPath}
-              onChange={(e) => {
-                setDicomPath(e.target.value);
-                localStorage.setItem('lastDicomPath', e.target.value);
-              }}
-              placeholder="e.g., C:/DICOM_Data or /data/dicom"
-            />
-          </label>
-          <button 
-            onClick={async () => {
-              try {
-                await dicomService.configureDicomPath(dicomPath);
-                setError(null); // Clear any previous errors
-              } catch (error) {
-                setError(error instanceof Error ? error.message : 'Failed to save DICOM path');
-              }
-            }}
-          >
-            Save Path
-          </button>
-        </div>
-        <small style={{ marginTop: '8px', color: 'gray' }}>
-          All DICOM files must be located somewhere under this base directory
-        </small>
-      </ConfigSection>
+
 
       <DicomManagerContainer>
         <h2>DICOM Studies {patient && `for ${patient.name}`}</h2>
