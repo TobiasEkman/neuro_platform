@@ -18,7 +18,9 @@ import {
   RenderingEngine,
   Types,
   Enums,
-  cache as cornerstoneCache
+  cache as cornerstoneCache,
+  volumeLoader as cornerstoneVolumeLoader,
+  setVolumesForViewports as cornerstoneSetVolumesForViewports
 } from '@cornerstonejs/core';
 import {
   ToolGroupManager,
@@ -131,48 +133,25 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
 
   // Initiera Cornerstone
   useEffect(() => {
-    const init = async () => {
+    const initCornerstone = async () => {
       try {
-        // Initiera Cornerstone
+        // Initiera Cornerstone Core
         await cornerstone.init();
-        await cornerstoneTools.init();
         
-        // Registrera bildladdare
-        dicomService.registerImageLoader();
+        // Registrera DICOM-bildladdare
+        await dicomService.registerImageLoader();
         
         // Skapa rendering engine
-        const engine = new cornerstone.RenderingEngine('dicom-viewer');
+        const engine = new RenderingEngine('myRenderingEngine');
         setRenderingEngine(engine);
         
-        // Skapa och konfigurera verktyg
-        const toolGroup = ToolGroupManager.createToolGroup('default');
-        if (!toolGroup) return;
-        
-        setToolGroup(toolGroup);
-        
-        // Lägg till verktyg
-        toolGroup.addTool(WindowLevelToolName);
-        toolGroup.addTool(PanToolName);
-        toolGroup.addTool(ZoomToolName);
-        toolGroup.addTool(StackScrollToolName);
-
-        // Aktivera verktyg direkt på toolGroup
-        toolGroup.setToolActive(WindowLevelToolName, {
-          mouseButtonMask: 1
-        });
-        toolGroup.setToolActive(PanToolName, {
-          mouseButtonMask: 2
-        });
-        toolGroup.setToolActive(ZoomToolName, {
-          mouseButtonMask: 4
-        });
-        toolGroup.setToolActive(StackScrollToolName);
+        console.log('Cornerstone initialized successfully');
       } catch (error) {
-        console.error('Error initializing Cornerstone3D:', error);
+        console.error('Error initializing Cornerstone:', error);
       }
     };
     
-    init();
+    initCornerstone();
     
     return () => {
       // Cleanup
@@ -240,100 +219,110 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
   };
 
   const renderSeriesWithCornerstone = async (seriesId: string) => {
-    if (!renderingEngine || !axialRef.current || !sagittalRef.current || !coronalRef.current) {
-      console.error('Rendering engine or canvas elements not ready');
-      return;
-    }
-
     try {
-      // Hämta imageIds för serien
-      const imageIds = await dicomService.getImageIds(seriesId);
-      setTotalSlices(imageIds.length);
-      
-      // Starta prefetching av nästa 10 bilder
-      const prefetchCount = 10;
-      dicomService.prefetchImages(imageIds.slice(0, prefetchCount));
-      
-      // För MPR-visning, ladda hela volymen
-      if (useMprView) {
-        const volume = await dicomService.loadVolumeForSeries(seriesId);
-        
-        // Konfigurera viewports för volymvisning
-        const viewportInputArray = [
-          {
-            viewportId: 'axial-viewport',
-            type: ViewportType.ORTHOGRAPHIC,
-            element: axialRef.current,
-            defaultOptions: {
-              orientation: Enums.OrientationAxis.AXIAL
-            }
-          },
-          {
-            viewportId: 'sagittal-viewport',
-            type: ViewportType.ORTHOGRAPHIC,
-            element: sagittalRef.current,
-            defaultOptions: {
-              orientation: Enums.OrientationAxis.SAGITTAL
-            }
-          },
-          {
-            viewportId: 'coronal-viewport',
-            type: ViewportType.ORTHOGRAPHIC,
-            element: coronalRef.current,
-            defaultOptions: {
-              orientation: Enums.OrientationAxis.CORONAL
-            }
-          }
-        ];
-        
-        // Skapa viewports
-        renderingEngine.setViewports(viewportInputArray);
-        
-        // Visa volymen i alla viewports
-        const axialViewport = renderingEngine.getViewport('axial-viewport') as cornerstone.Types.IVolumeViewport;
-        const sagittalViewport = renderingEngine.getViewport('sagittal-viewport') as cornerstone.Types.IVolumeViewport;
-        const coronalViewport = renderingEngine.getViewport('coronal-viewport') as cornerstone.Types.IVolumeViewport;
-        
-        await axialViewport.setVolumes([volume]);
-        await sagittalViewport.setVolumes([volume]);
-        await coronalViewport.setVolumes([volume]);
-      } 
-      // För vanlig stack-visning
-      else {
-        // Konfigurera viewports för stack-visning
-        const viewportInputArray = [
-          {
-            viewportId: 'axial-viewport',
-            type: ViewportType.STACK,
-            element: axialRef.current
-          }
-        ];
-        
-        // Skapa viewports
-        renderingEngine.setViewports(viewportInputArray);
-        
-        // Visa bildstacken
-        const axialViewport = renderingEngine.getViewport('axial-viewport') as Types.IStackViewport;
-        await axialViewport.setStack(imageIds);
+      if (!axialRef.current || !sagittalRef.current || !coronalRef.current) {
+        console.error('Viewport elements not available');
+        return;
       }
       
-      // Koppla verktygsgruppen till viewports
-      if (toolGroup) {
-        if (useMprView) {
-          // För MPR-visning
-          toolGroup.addViewport('axial-viewport', 'dicom-viewer');
-          toolGroup.addViewport('sagittal-viewport', 'dicom-viewer');
-          toolGroup.addViewport('coronal-viewport', 'dicom-viewer');
-        } else {
-          // För stack-visning
-          toolGroup.addViewport('axial-viewport', 'dicom-viewer');
+      const engine = renderingEngine;
+      if (!engine) {
+        console.error('Rendering engine not initialized');
+        return;
+      }
+      
+      // Hämta bilderna för serien
+      const imageIds = await dicomService.getImageIdsForSeries(seriesId);
+      
+      if (useMprView) {
+        // === VOLYM-RENDERING (MPR) ===
+        
+        // Definiera volym-ID
+        const volumeId = `volume-${seriesId}`;
+        
+        // Skapa volym i minnet
+        const volume = await cornerstoneVolumeLoader.createAndCacheVolume(volumeId, {
+          imageIds,
+          dimensions: [512, 512, imageIds.length],
+          spacing: [1, 1, 1],
+          orientation: [1, 0, 0, 0, 1, 0, 0, 0, 1]
+        } as any);
+        
+        // Definiera viewports för olika orienteringar
+        const viewportInput = [
+          {
+            viewportId: 'CT_AXIAL',
+            element: axialRef.current,
+            type: Enums.ViewportType.ORTHOGRAPHIC,
+            defaultOptions: {
+              orientation: Enums.OrientationAxis.AXIAL,
+            },
+          },
+          {
+            viewportId: 'CT_SAGITTAL',
+            element: sagittalRef.current,
+            type: Enums.ViewportType.ORTHOGRAPHIC,
+            defaultOptions: {
+              orientation: Enums.OrientationAxis.SAGITTAL,
+            },
+          },
+          {
+            viewportId: 'CT_CORONAL',
+            element: coronalRef.current,
+            type: Enums.ViewportType.ORTHOGRAPHIC,
+            defaultOptions: {
+              orientation: Enums.OrientationAxis.CORONAL,
+            },
+          },
+        ];
+        
+        // Sätt upp viewports
+        engine.setViewports(viewportInput);
+        
+        // Ladda volymen
+        await volume.load();
+        
+        // Sätt volymen för alla viewports
+        cornerstoneSetVolumesForViewports(
+          engine,
+          [{ volumeId }],
+          ['CT_AXIAL', 'CT_SAGITTAL', 'CT_CORONAL']
+        );
+        
+        // Lägg till viewports i toolGroup om det finns
+        if (toolGroup) {
+          toolGroup.addViewport('CT_AXIAL', 'myRenderingEngine');
+          toolGroup.addViewport('CT_SAGITTAL', 'myRenderingEngine');
+          toolGroup.addViewport('CT_CORONAL', 'myRenderingEngine');
+        }
+      } else {
+        // === STACK-RENDERING ===
+        
+        // Skapa viewport med explicit typ
+        const viewportId = 'CT_AXIAL_STACK';
+        const viewportInput = {
+          viewportId,
+          element: axialRef.current,
+          type: Enums.ViewportType.STACK,
+        };
+        
+        // Använd enableElement istället för setViewports
+        engine.enableElement(viewportInput);
+        
+        // Hämta viewport och sätt stack
+        const viewport = engine.getViewport(viewportId) as Types.IStackViewport;
+        viewport.setStack(imageIds);
+        
+        // Rendera viewport
+        viewport.render();
+        
+        // Lägg till viewport i toolGroup
+        if (toolGroup) {
+          toolGroup.addViewport(viewportId, 'myRenderingEngine');
         }
       }
-      
-      // Rendera viewports
-      renderingEngine.render();
     } catch (error) {
-      console.error('Error rendering series with Cornerstone3D:', error);
+      console.error('Error rendering series:', error);
     }
   };
 
@@ -374,7 +363,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
       <MainContainer>
         <SidePanel>
           <ListContainer>
-            <ListTitle>Patienter</ListTitle>
+            <ListTitle>Patients</ListTitle>
             {patients.map(patient => (
               <ListItem 
                 key={patient.patient_id}
@@ -387,7 +376,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
           </ListContainer>
           
           <ListContainer>
-            <ListTitle>Undersökningar</ListTitle>
+            <ListTitle>Studies</ListTitle>
             {studies.map(study => (
               <ListItem
                 key={study.study_instance_uid}
@@ -403,7 +392,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
           </ListContainer>
           
           <ListContainer>
-            <ListTitle>Serier</ListTitle>
+            <ListTitle>Series</ListTitle>
             {series.map((series) => (
               <SeriesItem
                 key={series.series_instance_uid}

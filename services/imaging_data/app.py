@@ -4,7 +4,6 @@ from pymongo.errors import ServerSelectionTimeoutError
 from parsers.folder_parser import FolderParser
 from utils.mongo_utils import init_mongo_indexes
 from utils.search import fuzzy_search
-from utils.dataset_analyzer import DatasetAnalyzer
 import pydicom
 import numpy as np
 from flask_cors import CORS

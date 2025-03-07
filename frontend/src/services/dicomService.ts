@@ -626,6 +626,23 @@ export class DicomService {
     }
   }
 
+  // Lägg till getImageIdsForSeries-metoden i dicomService.ts
+  async getImageIdsForSeries(seriesId: string): Promise<string[]> {
+    try {
+      // Hämta instanser för serien
+      const response = await axios.get(`${this.baseUrl}/series/${seriesId}/instances`);
+      const instances = response.data;
+      
+      // Skapa imageIds med dicom:// schema
+      return instances.map((instance: any) => {
+        return `dicom://${instance.relative_path}`;
+      });
+    } catch (error) {
+      console.error('Error getting image IDs for series:', error);
+      throw this.handleError(error, 'Failed to get image IDs for series');
+    }
+  }
+
   private handleError(error: unknown, defaultMessage = 'An error occurred'): Error {
     if (axios.isAxiosError(error)) {
       const axiosError = error as AxiosError;

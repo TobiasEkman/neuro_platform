@@ -65,8 +65,33 @@ def handle_patient(id):
 
 @app.route('/patients/pid/<pid>', methods=['GET', 'PUT', 'DELETE'])
 def handle_patient_by_pid(pid):
-    # Liknande som ovan men använd pid istället för _id
-    pass
+    try:
+        if request.method == 'GET':
+            patient = db.patients.find_one({'patient_id': pid})
+            if patient:
+                patient['_id'] = str(patient['_id'])
+                return jsonify(patient)
+            return jsonify({'error': 'Patient not found'}), 404
+
+        elif request.method == 'PUT':
+            data = request.json
+            result = db.patients.update_one(
+                {'patient_id': pid}, 
+                {'$set': data}
+            )
+            if result.modified_count:
+                return jsonify({'message': 'Patient updated'})
+            return jsonify({'error': 'Patient not found'}), 404
+
+        elif request.method == 'DELETE':
+            result = db.patients.delete_one({'patient_id': pid})
+            if result.deleted_count:
+                return jsonify({'message': 'Patient deleted'})
+            return jsonify({'error': 'Patient not found'}), 404
+
+    except Exception as e:
+        logger.error(f"Error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/patients/bulk', methods=['POST'])
 def bulk_update():
@@ -112,6 +137,23 @@ def bulk_update():
     except Exception as e:
         logger.error(f"Error: {e}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    try:
+        # Kontrollera att databasen är tillgänglig
+        db.command('ping')
+        return jsonify({
+            'status': 'ok',
+            'message': 'Patient Management Service is running',
+            'database': 'connected'
+        })
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5008))
