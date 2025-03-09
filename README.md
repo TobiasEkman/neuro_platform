@@ -2,7 +2,7 @@
 ====================
 
 To do:
-
+- Gå igenom varje funktion från flask till frontend
 - Fixa cornerston3D, kanske ta bort hela dicom viewer
 - Uppdatera @imaging_data att skicka rätt data
 - Currently working on implementing cornerstone3D in the dicom viewer
@@ -171,7 +171,7 @@ B. API ENDPOINTS
 **6. DICOM Service (port 5003)**
 - /api/dicom/parse/folder: Parse DICOM folder
 - /api/dicom/parse/dicomdir: Parse DICOMDIR file
-- /api/search: Fuzzy search across DICOM data
+- /api/dicom/search: Fuzzy search across DICOM data
 - /api/dicom/list: List all DICOM studies/series
 - /api/dicom/series/{seriesId}: Get series metadata
 - /api/dicom/volume/{seriesId}: Get volume data for MPR

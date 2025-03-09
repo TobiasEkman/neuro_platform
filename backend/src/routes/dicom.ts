@@ -1,12 +1,8 @@
 import { Router, Request, Response } from 'express';
-import axios, { AxiosError } from 'axios';
-import { upload } from '../middleware/upload';
-import { ParsedQs } from 'qs';
-import multer from 'multer';
+import axios from 'axios';
 import { logger } from '../utils/logger';
 import { DicomModel } from '../models/DicomModel';
 import PatientModel from '../models/Patient';
-import Study from '../models/Study';
 
 // Lägg till dessa typdefinitioner för DicomViewerProps
 export interface DicomViewerProps {
@@ -47,7 +43,7 @@ const handleServiceError = (err: unknown, res: Response, defaultMessage = 'Servi
     }
 };
 
-// Add more specific routes for DICOM operations
+
 router.get('/series/:seriesId', async (req, res) => {
     try {
         console.log('Received request for series:', req.params.seriesId);
@@ -91,14 +87,15 @@ router.get('/image', async (req, res) => {
     }
 });
 
-// Route to forward folder parsing to the imaging service
+
 router.post('/parse/folder', async (req: Request, res: Response) => {
     try {
         const { folderPath } = req.body;
         
         // Set headers for streaming response
-        res.setHeader('Content-Type', 'application/x-ndjson');
-        res.setHeader('Transfer-Encoding', 'chunked');
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
         
         // Make request to imaging service with streaming response
         const response = await axios({
@@ -126,32 +123,7 @@ router.post('/parse/folder', async (req: Request, res: Response) => {
     }
 });
 
-// Parse DICOMDIR file
-router.post('/parse/dicomdir', async (req, res) => {
-    try {
-        const { dicomdirPath } = req.body;
-        const response = await axios.post(
-            `${IMAGING_SERVICE_URL}/api/dicom/parse/dicomdir`,
-            { dicomdirPath }
-        );
-        res.json(response.data);
-    } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'An unknown error occurred';
-        res.status(500).json({ message });
-    }
-});
 
-// Add this route
-router.get('/test', async (req, res) => {
-    try {
-        const response = await axios.get(`${IMAGING_SERVICE_URL}/api/dicom/test`);
-        res.json(response.data);
-    } catch (err) {
-        handleServiceError(err, res);
-    }
-});
-
-// Add this route to handle the list request
 router.get('/list', async (req, res) => {
     try {
         console.log('Fetching DICOM list');
@@ -163,7 +135,7 @@ router.get('/list', async (req, res) => {
     }
 });
 
-// Search studies
+
 router.get('/search', async (req, res) => {
     try {
         console.log('Search query:', req.query.q);
@@ -187,18 +159,9 @@ router.get('/stats', async (req: Request, res: Response) => {
     }
 });
 
-// Dataset analysis
-router.get('/dataset/analyze', async (req, res) => {
-    try {
-        const response = await axios.get(`${IMAGING_SERVICE_URL}/api/dataset/analyze`);
-        res.json(response.data);
-    } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'An unknown error occurred';
-        res.status(500).json({ message });
-    }
-});
 
-// Add these missing endpoints
+
+
 router.get('/volume/:seriesId', async (req, res) => {
     try {
         const response = await axios.get(
@@ -278,8 +241,6 @@ router.get('/health', async (req: Request, res: Response) => {
   }
 });
 
-// Add missing routes to match Flask service:
-
 // Debug endpoint
 router.get('/debug', async (req: Request, res: Response) => {
   try {
@@ -302,15 +263,6 @@ router.get('/test', async (req: Request, res: Response) => {
   }
 });
 
-// Configuration endpoint
-router.get('/config', async (req: Request, res: Response) => {
-  try {
-    const response = await axios.get(`${IMAGING_SERVICE_URL}/api/dicom/config`);
-    res.json(response.data);
-  } catch (err) {
-    handleServiceError(err, res);
-  }
-});
 
 router.post('/config', async (req: Request, res: Response) => {
   try {
@@ -438,28 +390,21 @@ router.get('/series', async (req: Request, res: Response) => {
 // Add studies endpoint
 router.get('/studies', async (req: Request, res: Response) => {
   try {
-    // Hämta alla studies från MongoDB
-    const studies = await Study.find({}).lean();
-    console.log('Found studies:', studies.length);
-    res.json(studies);
-  } catch (error) {
-    console.error('Error fetching studies:', error);
-    res.status(500).json({ error: 'Failed to fetch studies' });
-  }
-});
-
-// Lägg till dessa endpoints
-router.post('/analyze', async (req: Request, res: Response) => {
-  try {
-    const response = await axios.post(
-      `${IMAGING_SERVICE_URL}/dicom/analyze`,
-      req.body
-    );
+    const patientId = req.query.patientId;
+    console.log('[Backend] Fetching studies for patient:', patientId);
+    
+    const response = await axios.get(`${IMAGING_SERVICE_URL}/api/dicom/studies`, {
+      params: { patientId }
+    });
+    
+    console.log('[Backend] Found studies:', response.data.length);
     res.json(response.data);
   } catch (err) {
     handleServiceError(err, res);
   }
 });
+
+
 
 router.post('/import', async (req: Request, res: Response) => {
   try {

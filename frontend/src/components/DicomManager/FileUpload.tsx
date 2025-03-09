@@ -2,7 +2,13 @@ import React, { useState } from 'react';
 import styled from 'styled-components';
 import { FaFolder } from 'react-icons/fa';
 
-// Define custom attributes for input element
+// Utöka File-typen för att inkludera path
+interface CustomFile extends File {
+  path?: string;
+  webkitRelativePath: string;
+}
+
+// Uppdatera input-attributen
 interface CustomInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   webkitdirectory?: string;
   directory?: string;
@@ -13,6 +19,15 @@ interface FileUploadProps {
   disabled?: boolean;
   basePath?: string;
 }
+
+// Skapa en custom styled input-komponent
+const HiddenInput = styled.input.attrs<CustomInputProps>({
+  type: 'file',
+  webkitdirectory: '',
+  directory: ''
+})<CustomInputProps>`
+  display: none;
+`;
 
 export const FileUpload: React.FC<FileUploadProps> = ({ 
   onDirectorySelect, 
@@ -28,16 +43,14 @@ export const FileUpload: React.FC<FileUploadProps> = ({
   return (
     <UploadContainer>
       <HiddenInput
-        type="file"
-        webkitdirectory=""
-        directory=""
         disabled={disabled}
         id="dicom-directory-input"
         onChange={(e) => {
           const files = e.target.files;
           if (files && files.length > 0) {
-            // Använd den fullständiga sökvägen istället för bara katalognamnet
-            const fullPath = files[0].path || files[0].webkitRelativePath;
+            // Använd typade filer
+            const file = files[0] as CustomFile;
+            const fullPath = file.path || file.webkitRelativePath;
             handleSelect(fullPath);
           }
         }}
@@ -66,10 +79,6 @@ const UploadContainer = styled.div`
   padding: 1.5rem;
   border-radius: 8px;
   background: ${props => props.theme.colors.background.secondary};
-`;
-
-const HiddenInput = styled.input`
-  display: none;
 `;
 
 const UploadButton = styled.button<{ disabled?: boolean }>`

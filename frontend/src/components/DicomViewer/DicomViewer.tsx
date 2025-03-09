@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState} from 'react';
 import styled from 'styled-components';
 import dicomService from '../../services/dicomService';
-import { DicomStudy, DicomSeries, DicomInstance, SearchResult } from '../../types/medical';
+import { DicomStudy, DicomSeries} from '../../types/medical';
 import { Patient } from '../../types/patient';
 import {
   ViewerContainer,
@@ -12,8 +12,6 @@ import {
   ViewerLabel
 } from './styles';
 import * as cornerstone from '@cornerstonejs/core';
-import * as cornerstoneTools from '@cornerstonejs/tools';
-import { ViewportType } from '../../types/cornerstoneEnums';
 import { 
   RenderingEngine,
   Types,
@@ -22,23 +20,7 @@ import {
   volumeLoader as cornerstoneVolumeLoader,
   setVolumesForViewports as cornerstoneSetVolumesForViewports
 } from '@cornerstonejs/core';
-import {
-  ToolGroupManager,
-  ToolGroup,
-} from '@cornerstonejs/tools';
 
-// Definiera en typ för toolGroup baserat på vad som faktiskt används
-interface IToolGroup {
-  addTool: (toolName: string) => void;
-  setToolActive: (toolName: string, options?: any) => void;
-  addViewport: (viewportId: string, renderingEngineId: string) => void;
-}
-
-// Definiera verktygskonstanter
-const WindowLevelToolName = 'WindowLevel';
-const PanToolName = 'Pan';
-const ZoomToolName = 'Zoom';
-const StackScrollToolName = 'StackScroll';
 
 // Styled components
 const MainContainer = styled.div`

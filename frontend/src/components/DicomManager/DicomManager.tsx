@@ -2,16 +2,15 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { DicomList } from './DicomList';
 import { 
   DicomStudy, 
-  DicomImportResult,
-  DicomPatientSummary
+  DicomImportResult
 } from '../../types/medical';
 import dicomService from '../../services/dicomService';
 import { usePatient } from '../../hooks/usePatient';
 import { UploadSection } from './UploadSection';
 import { FileUpload } from './FileUpload';
 import styled from 'styled-components';
-import { FaSpinner, FaTimes, FaCheck, FaExclamationTriangle } from 'react-icons/fa';
-import { logger } from '../../utils/logger';
+import { FaCheck, FaExclamationTriangle } from 'react-icons/fa';
+
 
 // Add props interface
 export interface DicomManagerProps {
@@ -19,28 +18,6 @@ export interface DicomManagerProps {
   onUploadComplete?: (result: DicomImportResult) => void;
 }
 
-// Flytta styled components till komponenten
-const StatsModal = styled.div`
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-`;
-
-const ModalContent = styled.div`
-  background: white;
-  padding: 20px;
-  border-radius: 8px;
-  max-width: 80%;
-  max-height: 80vh;
-  overflow-y: auto;
-`;
 
 const DicomManagerContainer = styled.div`
   padding: 20px;
@@ -51,31 +28,6 @@ const DicomManagerContainer = styled.div`
   }
 `;
 
-// Styled components för loading och error
-const LoadingOverlay = styled.div`
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-  color: white;
-`;
-
-const Spinner = styled(FaSpinner)`
-  animation: spin 1s linear infinite;
-  margin-bottom: 10px;
-  font-size: 2rem;
-  
-  @keyframes spin {
-    100% { transform: rotate(360deg); }
-  }
-`;
 
 const ErrorMessage = styled.div`
   background: #ff5252;
@@ -137,98 +89,6 @@ const ProgressBar = styled.div<ProgressBarProps>`
   }
 `;
 
-interface StudyListItemProps {
-  study: DicomStudy;
-  isSelected: boolean;
-  onSelect: (studyId: string) => void;
-}
-
-const StudyListItem = styled.div<{ isSelected: boolean }>`
-  padding: 10px;
-  margin: 5px 0;
-  border: 1px solid ${props => props.theme.colors.border};
-  border-radius: 5px;
-  background-color: ${props => props.isSelected ? props.theme.colors.highlight : 'transparent'};
-  cursor: pointer;
-  
-  &:hover {
-    background-color: ${props => props.theme.colors.highlightHover};
-  }
-`;
-
-const StudyInfo = ({ study }: { study: DicomStudy }) => {
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return 'No Date';
-    
-    // Handle YYYYMMDD format
-    if (dateStr.length === 8) {
-      const year = dateStr.substring(0, 4);
-      const month = dateStr.substring(4, 6);
-      const day = dateStr.substring(6, 8);
-      return new Date(`${year}-${month}-${day}`).toLocaleDateString();
-    }
-    
-    // Handle ISO format (YYYY-MM-DD)
-    const date = new Date(dateStr);
-    return isNaN(date.getTime()) ? 'Invalid Date' : date.toLocaleDateString();
-  };
-
-  return (
-    <>
-      <h3>{study.description || 'Untitled Study'}</h3>
-      <div>
-        Date: {formatDate(study.study_date)}
-      </div>
-      <div>
-        Series Count: {study.num_series || study.series?.length || 0}
-      </div>
-      <div>
-        Modality: {study.modalities?.join(', ') || ''}
-      </div>
-    </>
-  );
-};
-
-const ConfigSection = styled.div`
-  margin-bottom: 20px;
-  padding: 15px;
-  background: ${props => props.theme.colors.background.secondary};
-  border-radius: 8px;
-
-  .path-input-container {
-    display: flex;
-    gap: 10px;
-  }
-
-  label {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    flex-grow: 1;
-  }
-
-  input {
-    padding: 8px;
-    border: 1px solid ${props => props.theme.colors.border};
-    border-radius: 4px;
-    width: 100%;
-  }
-
-  button {
-    align-self: flex-end;
-    padding: 8px 16px;
-    background: ${props => props.theme.colors.primary};
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    height: 37px;  // Match input height
-
-    &:hover {
-      background: ${props => props.theme.colors.primaryDark};
-    }
-  }
-`;
 
 // Lägg till en ny komponent för bekräftelsedialog
 const ConfirmationDialog = styled.div`
@@ -363,13 +223,16 @@ const DicomManager: React.FC<DicomManagerProps> = ({
       setError(null);
       setProgress(0);
       
-      // Analysera DICOM-data utan att spara till databasen
-      console.log('[DicomManager] Analyzing directory:', selectedPath);
+      console.log('[DicomManager] Parsing directory:', selectedPath);
       
-      // Ändra API-anropet för att bara analysera utan att spara
-      const result = await dicomService.analyzeDicomDirectory(selectedPath, (progress) => {
-        setProgress(progress.percentage);
-      });
+
+      const result = await dicomService.parseDirectory(
+        selectedPath,
+        (progress) => {
+          // progress innehåller { current, total, percentage }
+          setProgress(progress.percentage);
+        }
+      );
       
       if (!result.studies || result.studies.length === 0) {
         setError('No DICOM files found in the selected directory');
@@ -384,13 +247,13 @@ const DicomManager: React.FC<DicomManagerProps> = ({
       const patientMap = new Map<string, PatientConfirmation>();
       
       // Gruppera studier efter patient-ID
-      result.studies.forEach(study => {
+      result.studies.forEach((study: DicomStudy) => {
         const pid = study.patient_id;
         if (!patientMap.has(pid)) {
           const existingPatient = existingPatients.find(p => p.patient_id === pid);
           patientMap.set(pid, {
             patientId: pid,
-            name: (study as any).patient_name || 'Unknown',
+            name: study.patient_name || 'Unknown',
             isNew: !existingPatient,
             studyCount: 1
           });
@@ -401,7 +264,6 @@ const DicomManager: React.FC<DicomManagerProps> = ({
         }
       });
       
-      // Konvertera Map till Array för state
       setPatientsToConfirm(Array.from(patientMap.values()));
       setPendingDirectoryPath(selectedPath);
       setPendingDicomData(result);
@@ -461,18 +323,7 @@ const DicomManager: React.FC<DicomManagerProps> = ({
     setSelectedStudyId(study.study_instance_uid);
   }, []);
 
-  const handleSearch = async (query: string) => {
-    try {
-      const results = await dicomService.searchStudies(query);
-      // Filtrera och konvertera endast study-resultat
-      const studyResults = results
-        .filter(result => result.type === 'study' && result.studyData)
-        .map(result => convertStudy(result.studyData as DicomStudy));
-      setStudies(studyResults);
-    } catch (error) {
-      console.error('Search error:', error);
-    }
-  };
+
 
   const convertStudy = (study: DicomStudy): DicomStudy => {
     return {
@@ -491,42 +342,32 @@ const DicomManager: React.FC<DicomManagerProps> = ({
 
   return (
     <DicomManagerContainer>
-      <h2>DICOM Management</h2>
+      <h2>Upload DICOM Data {patient && `for ${patient.name}`}</h2>
+      
+      {/* Error display */}
+      {error && (
+        <ErrorMessage>
+          {error}
+          <CloseButton onClick={() => setError(null)}>×</CloseButton>
+        </ErrorMessage>
+      )}
+
+      <UploadSection>
+        <FileUpload 
+          onDirectorySelect={(path) => {
+            handleDirectorySelect(path);
+          }}
+          disabled={isProcessing}
+        />
+        {isProcessing && (
+          <ProgressBar 
+            progress={progress} 
+            text={`Processing: ${progress.toFixed(1)}%`}
+          />
+        )}
+      </UploadSection>
       
 
-
-      <DicomManagerContainer>
-        <h2>DICOM Studies {patient && `for ${patient.name}`}</h2>
-        
-        {/* Error display */}
-        {error && (
-          <ErrorMessage>
-            {error}
-            <CloseButton onClick={() => setError(null)}>×</CloseButton>
-          </ErrorMessage>
-        )}
-
-        <UploadSection>
-          <FileUpload 
-            onDirectorySelect={(path) => {
-              handleDirectorySelect(path);
-            }}
-            disabled={isProcessing}
-          />
-          {isProcessing && (
-            <ProgressBar 
-              progress={progress} 
-              text={`Processing: ${progress.toFixed(1)}%`}
-            />
-          )}
-        </UploadSection>
-        
-        <DicomList 
-          studies={studies}
-          selectedStudyId={selectedStudyId}
-          onStudySelect={handleStudySelect}
-        />
-      </DicomManagerContainer>
       
       {/* Bekräftelsedialog */}
       {showConfirmation && (

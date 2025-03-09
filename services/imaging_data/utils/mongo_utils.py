@@ -1,5 +1,3 @@
-from pymongo import ASCENDING, IndexModel
-from pymongo.errors import OperationFailure
 import logging
 
 logging.basicConfig(level=logging.INFO)

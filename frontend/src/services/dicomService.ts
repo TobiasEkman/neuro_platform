@@ -2,27 +2,18 @@ import axios, { AxiosError } from 'axios';
 import { 
   DicomStudy, 
   DicomSeries, 
-  DicomImage, 
   DicomImportResult, 
-  VolumeData,
   WindowPreset,
   SearchResult,
   DicomPatientSummary
 } from '../types/medical';
 import { logger } from '../utils/logger';
-// @ts-ignore - Saknade typdeklarationer för Cornerstone-bibliotek
+
 import * as cornerstone from '@cornerstonejs/core';
-// @ts-ignore
-import { imageLoader } from '@cornerstonejs/core';
-// @ts-ignore
-import { volumeLoader } from '@cornerstonejs/core';
-// @ts-ignore
-import { VolumeLoadObject } from '@cornerstonejs/core';
-// @ts-ignore
-import * as dicomImageLoader from '@cornerstonejs/dicom-image-loader';
+
 import { init as csTools3dInit } from '@cornerstonejs/tools';
 
-// Ta bort import från dicom.ts och använd convertStudy direkt här
+
 const convertStudy = (study: DicomStudy): DicomStudy => {
   if (!study) {
     console.error('Received undefined study in convertStudy');
@@ -53,7 +44,7 @@ const convertStudy = (study: DicomStudy): DicomStudy => {
   };
 };
 
-// Lägg till DicomMetadata interface
+
 export interface DicomMetadata {
   patientId: string;
   studyInstanceUID: string;
@@ -67,35 +58,7 @@ export interface DicomMetadata {
   metadata?: Record<string, any>;
 }
 
-interface ImageResponse {
-  pixelData: number[][];
-  rows: number;
-  columns: number;
-  windowCenter: number;
-  windowWidth: number;
-}
 
-interface ImageBatchResponse {
-  images: {
-    instanceId: string;
-    pixelData: number[][];
-    rows: number;
-    columns: number;
-    windowCenter: number;
-    windowWidth: number;
-  }[];
-  total: number;
-  start: number;
-  count: number;
-}
-
-interface ImageLoaderResult {
-  promise: Promise<Record<string, any>>;
-  cancelFn?: () => void;
-  decache?: () => void;
-}
-
-// Definiera egna typer för att hantera Cornerstone API
 interface IImageLoadObject {
   image: any;
   imageId: string;
@@ -128,32 +91,33 @@ export class DicomService {
         `${this.baseUrl}/parse/folder`,
         { folderPath: directoryPath },
         {
-          responseType: 'text',
-          timeout: 0,  // Disable timeout
+          responseType: 'stream',
+          headers: {
+            'Accept': 'text/event-stream'
+          },
+          timeout: 0,
           onDownloadProgress: (progressEvent) => {
             const text = progressEvent.event?.target?.responseText || '';
-            const lines = text.split('\n').filter((line: string) => line.trim());
+            const events = text.split('\n\n').filter(Boolean);
             
-            // Process only the last line for progress
-            const lastLine = lines[lines.length - 1];
-            if (lastLine) {
+            const lastEvent = events[events.length - 1];
+            if (lastEvent && lastEvent.startsWith('data: ')) {
               try {
-                const data = JSON.parse(lastLine);
+                const data = JSON.parse(lastEvent.slice(6));
                 if (!data.complete && !data.error && onProgress) {
                   onProgress(data);
                 }
               } catch (e) {
-                // Ignore parse errors for incomplete lines
+                // Ignore parse errors for incomplete events
               }
             }
           }
         }
       );
 
-      // Process final result
-      const lines = response.data.split('\n').filter(Boolean);
-      const lastLine = lines[lines.length - 1];
-      const result = JSON.parse(lastLine);
+      const events = response.data.split('\n\n').filter(Boolean);
+      const lastEvent = events[events.length - 1];
+      const result = JSON.parse(lastEvent.slice(6));
 
       if (result.error) {
         throw new Error(result.error);
