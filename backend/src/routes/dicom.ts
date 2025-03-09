@@ -150,39 +150,9 @@ router.get('/search', async (req, res) => {
     }
 });
 
-router.get('/stats', async (req: Request, res: Response) => {
-    try {
-        const response = await axios.get(`${IMAGING_SERVICE_URL}/api/dicom/stats`);
-        res.json(response.data);
-    } catch (err) {
-        handleServiceError(err, res);
-    }
-});
 
 
 
-
-router.get('/volume/:seriesId', async (req, res) => {
-    try {
-        const response = await axios.get(
-            `${IMAGING_SERVICE_URL}/api/dicom/volume/${req.params.seriesId}`
-        );
-        res.json(response.data);
-    } catch (err) {
-        handleServiceError(err, res);
-    }
-});
-
-router.get('/series/:seriesId/metadata', async (req, res) => {
-    try {
-        const response = await axios.get(
-            `${IMAGING_SERVICE_URL}/api/dicom/series/${req.params.seriesId}/metadata`
-        );
-        res.json(response.data);
-    } catch (err) {
-        handleServiceError(err, res);
-    }
-});
 
 router.post('/metadata', async (req: Request, res: Response) => {
     try {
@@ -276,27 +246,7 @@ router.post('/config', async (req: Request, res: Response) => {
   }
 });
 
-// Health check endpoint
-router.get('/health', async (req: Request, res: Response) => {
-  try {
-    const response = await axios.get(`${IMAGING_SERVICE_URL}/health`);
-    res.json(response.data);
-  } catch (err) {
-    handleServiceError(err, res);
-  }
-});
 
-// Add DICOM search endpoint
-router.get('/search', async (req: Request, res: Response) => {
-  try {
-    const response = await axios.get(`${IMAGING_SERVICE_URL}/api/dicom/search`, {
-      params: req.query
-    });
-    res.json(response.data);
-  } catch (err) {
-    handleServiceError(err, res);
-  }
-});
 
 // Add volume endpoint
 router.get('/volume/:seriesId', async (req: Request, res: Response) => {
@@ -421,6 +371,54 @@ router.post('/import', async (req: Request, res: Response) => {
 router.get('/patients', async (req: Request, res: Response) => {
   try {
     const response = await axios.get(`${IMAGING_SERVICE_URL}/patients`);
+    res.json(response.data);
+  } catch (err) {
+    handleServiceError(err, res);
+  }
+});
+
+// Hämta imageIds för Cornerstone
+router.get('/imageIds', async (req: Request, res: Response) => {
+  try {
+    console.log('[Backend] Fetching imageIds with params:', req.query);
+    const response = await axios.get(`${IMAGING_SERVICE_URL}/api/dicom/imageIds`, {
+      params: req.query
+    });
+    console.log('[Backend] Found imageIds:', response.data.length);
+    res.json(response.data);
+  } catch (err) {
+    handleServiceError(err, res);
+  }
+});
+
+// Hämta DICOM-instans (binärdata)
+router.get('/instance/:sopInstanceUid', async (req: Request, res: Response) => {
+  try {
+    console.log('[Backend] Fetching DICOM instance:', req.params.sopInstanceUid);
+    const response = await axios.get(
+      `${IMAGING_SERVICE_URL}/api/dicom/instance/${req.params.sopInstanceUid}`,
+      { responseType: 'arraybuffer' } // Viktigt: Hämta som binärdata
+    );
+    
+    // Kopiera headers från imaging-service
+    Object.entries(response.headers).forEach(([key, value]) => {
+      if (value) res.setHeader(key, value);
+    });
+    
+    // Skicka binärdata direkt till klienten
+    res.send(response.data);
+  } catch (err) {
+    handleServiceError(err, res);
+  }
+});
+
+// Hämta metadata för DICOM-instans
+router.get('/metadata/:sopInstanceUid', async (req: Request, res: Response) => {
+  try {
+    console.log('[Backend] Fetching metadata for instance:', req.params.sopInstanceUid);
+    const response = await axios.get(
+      `${IMAGING_SERVICE_URL}/api/dicom/metadata/${req.params.sopInstanceUid}`
+    );
     res.json(response.data);
   } catch (err) {
     handleServiceError(err, res);

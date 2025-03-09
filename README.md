@@ -2,6 +2,7 @@
 ====================
 
 To do:
+https://github.com/cornerstonejs/cornerstone3D/tree/main/packages/ai
 - Gå igenom varje funktion från flask till frontend
 - Fixa cornerston3D, kanske ta bort hela dicom viewer
 - Uppdatera @imaging_data att skicka rätt data
@@ -423,8 +424,7 @@ Integrated workflow for MGMT methylation status prediction:
 
 ***Imaging Data Service (@imaging_data) - Port 5003***  
    - Handles DICOM file uploads and parsing.  
-   - Main routes:
-     - `POST /dicom/upload` – Upload DICOM files.  
+   - Main routes: 
        1. Validates that a `pid` was included.  
        2. Saves all uploaded files.  
        3. Parses them into `study_data`.  

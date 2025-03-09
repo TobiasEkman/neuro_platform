@@ -114,33 +114,7 @@ def parse_folder():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/dicom/search', methods=['GET'])
-def search_studies():
-    try:
-        query = request.args.get('q', '')
-        logger.info(f"Searching with query: {query}")
-        
-        # Build MongoDB query
-        mongo_query = {}
-        if query:
-            query_parts = dict(part.split(':') for part in query.split() if ':' in part)
-            if 'patient' in query_parts:
-                mongo_query['patient_id'] = query_parts['patient']
-            if 'study' in query_parts:
-                mongo_query['study_instance_uid'] = query_parts['study']
-        
-        # Execute search
-        studies = list(db.studies.find(mongo_query))
-        
-        # Använd json_util.dumps för att hantera MongoDB-specifika typer
-        return Response(
-            json_util.dumps(studies),
-            mimetype='application/json'
-        )
-        
-    except Exception as e:
-        logger.error(f"Search error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+
 
 
 @app.route('/api/dicom/image', methods=['GET'])
@@ -266,18 +240,6 @@ def get_series_for_study():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/dicom/stats', methods=['GET'])
-def get_stats():
-    try:
-        stats = {
-            'patients': db.patients.count_documents({}),
-            'studies': db.studies.count_documents({}),
-            'series': db.series.count_documents({}),
-            'instances': db.instances.count_documents({})
-        }
-        return jsonify(stats)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/dicom/list', methods=['GET'])
 def list_data():
@@ -365,54 +327,6 @@ def get_volume(series_id):
         app.logger.error(f"Error getting volume: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/dicom/upload', methods=['POST'])
-def upload_dicom():
-    try:
-        if 'files' not in request.files:
-            return jsonify({'error': 'No files uploaded'}), 400
-            
-        pid = request.form.get('pid')
-        if not pid:
-            return jsonify({'error': 'No patient ID provided'}), 400
-
-        files = request.files.getlist('files')
-        upload_dir = os.path.join(app.config['UPLOAD_DIR'], pid)
-        os.makedirs(upload_dir, exist_ok=True)
-
-        # Save files and parse DICOM data
-        saved_files = []
-        for file in files:
-            filename = secure_filename(file.filename)
-            filepath = os.path.join(upload_dir, filename)
-            file.save(filepath)
-            saved_files.append(filepath)
-
-        # Parse the uploaded files
-        parser = FolderParser(db)
-        study_data = parser.parse(upload_dir)
-
-        # Update patient record in patient management service
-        response = requests.post(
-            f'{app.config["PATIENT_SERVICE_URL"]}/patients/pid/{pid}/dicom',
-            json=study_data
-        )
-        
-        if not response.ok:
-            raise Exception('Failed to update patient record')
-
-        return jsonify({
-            'message': 'Upload successful',
-            'studies': study_data
-        })
-
-    except Exception as e:
-        logger.error(f"Upload error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-
-
-
-
 @app.route('/api/dicom/study/<study_id>', methods=['GET'])
 def get_study(study_id):
     try:
@@ -474,99 +388,145 @@ def get_studies():
         logger.error(f"Error in get_studies: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/dicom/images/batch/<series_id>', methods=['GET'])
-def get_image_batch(series_id):
+@app.route('/api/dicom/imageIds', methods=['GET'])
+def get_image_ids():
     try:
-        start = int(request.args.get('start', 0))
-        batch_size = int(request.args.get('count', 10))
+        study_id = request.args.get('studyId')
+        series_id = request.args.get('seriesId')
         
-        # Hämta serien
-        series = db.series.find_one({'series_instance_uid': series_id})
-        if not series or not series.get('instances'):
-            return jsonify({'error': 'Series not found'}), 404
+        if not study_id and not series_id:
+            return jsonify({'error': 'studyId eller seriesId krävs'}), 400
             
-        # Sortera instances efter nummer
-        instances = sorted(
-            series['instances'], 
-            key=lambda x: int(x.get('instance_number', 0))
-        )[start:start + batch_size]
+        query = {}
+        if study_id:
+            query['study_instance_uid'] = study_id
+        if series_id:
+            query['series_instance_uid'] = series_id
+            
+        instances = list(db.instances.find(query, {'_id': 0}))
         
-        # Läs alla bilder i batchen parallellt
-        def load_image(instance):
-            ds = pydicom.dcmread(instance['file_path'], force=True)
-            return {
-                'instanceId': instance['sop_instance_uid'],
-                'pixelData': ds.pixel_array.tolist(),
-                'rows': ds.Rows,
-                'columns': ds.Columns,
-                'windowCenter': float(ds.WindowCenter),
-                'windowWidth': float(ds.WindowWidth)
-            }
-            
-        with ThreadPoolExecutor() as executor:
-            batch_images = list(executor.map(load_image, instances))
-            
-        return jsonify({
-            'images': batch_images,
-            'total': len(series['instances']),
-            'start': start,
-            'count': len(batch_images)
-        })
+        # Skapa imageIds för Cornerstone (wado-uri format)
+        base_url = request.host_url.rstrip('/')
+        image_ids = []
         
+        for instance in instances:
+            image_path = instance.get('file_path', '').replace('\\', '/')
+            # Skapa en wadors:// imageId (Cornerstone DICOM Image Loader format)
+            image_id = f"wadouri:{base_url}/api/dicom/instance/{instance['sop_instance_uid']}"
+            
+            image_ids.append({
+                'imageId': image_id,
+                'sopInstanceUid': instance['sop_instance_uid'],
+                'seriesInstanceUid': instance.get('series_instance_uid', ''),
+                'studyInstanceUid': instance.get('study_instance_uid', ''),
+                'instanceNumber': instance.get('instance_number', 0),
+                'filePath': image_path
+            })
+            
+        # Sortera efter instanceNumber
+        image_ids.sort(key=lambda x: x['instanceNumber'])
+        
+        return jsonify(image_ids)
     except Exception as e:
-        logger.error(f"Error loading image batch: {str(e)}")
+        logger.error(f"Error getting image IDs: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/dicom/cornerstone/<series_id>', methods=['GET'])
-def get_cornerstone_image():
+@app.route('/api/dicom/instance/<sop_instance_uid>', methods=['GET'])
+def get_instance(sop_instance_uid):
     try:
-        file_path = request.args.get('path')
-        if not file_path:
-            return jsonify({'error': 'No file path provided'}), 400
-
+        instance = db.instances.find_one({'sop_instance_uid': sop_instance_uid})
+        if not instance:
+            return jsonify({'error': 'Instance not found'}), 404
+            
+        file_path = instance.get('file_path')
+        if not file_path or not os.path.exists(file_path):
+            return jsonify({'error': 'DICOM file not found'}), 404
+            
         # Läs DICOM-filen
         ds = pydicom.dcmread(file_path, force=True)
         
-        # Formatera data som Cornerstone förväntar sig
+        # Kontrollera om PixelData finns
+        if not hasattr(ds, 'PixelData'):
+            return jsonify({'error': 'No pixel data in DICOM file'}), 500
+            
+        # Extrahera pixel data
+        try:
+            pixel_array = ds.pixel_array
+        except Exception as e:
+            return jsonify({'error': f'Failed to read pixel data: {str(e)}'}), 500
+            
+        # Returnera pixel data och metadata i format som Cornerstone förväntar sig
         response = {
-            'imageId': f'dicom://{file_path}',
-            'minPixelValue': float(ds.pixel_array.min()),
-            'maxPixelValue': float(ds.pixel_array.max()),
-            'slope': float(ds.get('RescaleSlope', 1.0)),
-            'intercept': float(ds.get('RescaleIntercept', 0.0)),
-            'windowCenter': float(ds.get('WindowCenter', ds.pixel_array.mean())),
-            'windowWidth': float(ds.get('WindowWidth', ds.pixel_array.max() - ds.pixel_array.min())),
+            'imageId': f"wadouri:{request.host_url.rstrip('/')}/api/dicom/instance/{sop_instance_uid}",
+            'sopInstanceUid': sop_instance_uid,
             'rows': int(ds.Rows),
             'columns': int(ds.Columns),
-            'height': int(ds.Rows),
-            'width': int(ds.Columns),
-            'color': False,
-            'columnPixelSpacing': float(ds.get('PixelSpacing', [1.0])[0]),
-            'rowPixelSpacing': float(ds.get('PixelSpacing', [1.0, 1.0])[1]),
-            'sizeInBytes': len(ds.pixel_array.tobytes()),
-            'pixelData': ds.pixel_array.tobytes()
+            'windowCenter': float(ds.WindowCenter) if hasattr(ds, 'WindowCenter') else 127,
+            'windowWidth': float(ds.WindowWidth) if hasattr(ds, 'WindowWidth') else 255,
+            'sliceThickness': float(ds.SliceThickness) if hasattr(ds, 'SliceThickness') else 1,
+            'pixelSpacing': [
+                float(ds.PixelSpacing[0]) if hasattr(ds, 'PixelSpacing') else 1,
+                float(ds.PixelSpacing[1]) if hasattr(ds, 'PixelSpacing') else 1
+            ],
+            'photometricInterpretation': ds.PhotometricInterpretation if hasattr(ds, 'PhotometricInterpretation') else 'MONOCHROME2',
+            'invert': False,
+            'pixelData': pixel_array.tobytes(),
+            'minPixelValue': int(pixel_array.min()),
+            'maxPixelValue': int(pixel_array.max()),
+            'slope': float(ds.RescaleSlope) if hasattr(ds, 'RescaleSlope') else 1.0,
+            'intercept': float(ds.RescaleIntercept) if hasattr(ds, 'RescaleIntercept') else 0.0,
+            'color': False
         }
-
-        return Response(
-            response=response['pixelData'],
-            mimetype='application/octet-stream',
-            headers={
-                'X-Min-Pixel-Value': str(response['minPixelValue']),
-                'X-Max-Pixel-Value': str(response['maxPixelValue']),
-                'X-Window-Center': str(response['windowCenter']),
-                'X-Window-Width': str(response['windowWidth']),
-                'X-Rows': str(response['rows']),
-                'X-Columns': str(response['columns']),
-                'X-Intercept': str(response['intercept']),
-                'X-Slope': str(response['slope'])
-            }
-        )
-
+        
+        # Skapa en Response som är kompatibel med Cornerstone
+        headers = {
+            'Content-Type': 'application/dicom',
+            'Content-Disposition': f'attachment; filename={sop_instance_uid}.dcm'
+        }
+        
+        # Returnera hela DICOM filen istället för JSON
+        return Response(open(file_path, 'rb').read(), headers=headers)
+        
     except Exception as e:
-        logger.error(f"Error loading Cornerstone image: {str(e)}")
+        logger.error(f"Error getting instance: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-
+@app.route('/api/dicom/metadata/<sop_instance_uid>', methods=['GET'])
+def get_instance_metadata(sop_instance_uid):
+    try:
+        instance = db.instances.find_one({'sop_instance_uid': sop_instance_uid})
+        if not instance:
+            return jsonify({'error': 'Instance not found'}), 404
+            
+        file_path = instance.get('file_path')
+        if not file_path or not os.path.exists(file_path):
+            return jsonify({'error': 'DICOM file not found'}), 404
+            
+        # Läs DICOM-filen för metadata
+        ds = pydicom.dcmread(file_path, force=True, stop_before_pixels=True)
+        
+        # Extrahera relevant metadata för Cornerstone
+        metadata = {
+            'sopInstanceUid': sop_instance_uid,
+            'seriesInstanceUid': ds.SeriesInstanceUID if hasattr(ds, 'SeriesInstanceUID') else '',
+            'studyInstanceUid': ds.StudyInstanceUID if hasattr(ds, 'StudyInstanceUID') else '',
+            'rows': int(ds.Rows) if hasattr(ds, 'Rows') else 0,
+            'columns': int(ds.Columns) if hasattr(ds, 'Columns') else 0,
+            'instanceNumber': int(ds.InstanceNumber) if hasattr(ds, 'InstanceNumber') else 0,
+            'sliceLocation': float(ds.SliceLocation) if hasattr(ds, 'SliceLocation') else 0,
+            'sliceThickness': float(ds.SliceThickness) if hasattr(ds, 'SliceThickness') else 0,
+            'pixelSpacing': list(map(float, ds.PixelSpacing)) if hasattr(ds, 'PixelSpacing') else [1, 1],
+            'windowCenter': float(ds.WindowCenter[0] if isinstance(ds.WindowCenter, pydicom.multival.MultiValue) else ds.WindowCenter) if hasattr(ds, 'WindowCenter') else 127,
+            'windowWidth': float(ds.WindowWidth[0] if isinstance(ds.WindowWidth, pydicom.multival.MultiValue) else ds.WindowWidth) if hasattr(ds, 'WindowWidth') else 255,
+            'rescaleIntercept': float(ds.RescaleIntercept) if hasattr(ds, 'RescaleIntercept') else 0,
+            'rescaleSlope': float(ds.RescaleSlope) if hasattr(ds, 'RescaleSlope') else 1,
+        }
+        
+        return jsonify(metadata)
+        
+    except Exception as e:
+        logger.error(f"Error getting metadata: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     print("\nStarting Flask server...")

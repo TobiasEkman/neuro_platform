@@ -13,6 +13,8 @@ import * as cornerstone from '@cornerstonejs/core';
 
 import { init as csTools3dInit } from '@cornerstonejs/tools';
 
+// Importera Cornerstone DICOM Image Loader
+import * as cornerstoneDICOMImageLoader from '@cornerstonejs/dicom-image-loader';
 
 const convertStudy = (study: DicomStudy): DicomStudy => {
   if (!study) {
@@ -355,168 +357,215 @@ export class DicomService {
     }
   }
 
-  async getImageBatch(seriesId: string, startIndex: number, count: number): Promise<any[]> {
+  // Ersätt befintliga getImageIds-metoder med denna centraliserade metod
+  async getImageIds(options: { studyId?: string; seriesId?: string }): Promise<string[]> {
     try {
-      const response = await axios.get(
-        `${this.baseUrl}/images/batch/${seriesId}`, 
-        { params: { start: startIndex, count } }
-      );
-      return response.data.images;
-    } catch (error) {
-      throw this.handleError(error, 'Failed to fetch image batch');
-    }
-  }
-
-  async getSeriesImageIds(seriesId: string): Promise<string[]> {
-    try {
-      const series = await this.getSeries(seriesId);
-      if (!series?.instances) {
-        throw new Error('No instances found');
-      }
-
-      // Skapa Cornerstone imageIds
-      return series.instances.map(instance => 
-        `wadouri:${this.baseUrl}/image?path=${encodeURIComponent(instance.file_path)}`
-      );
-    } catch (error) {
-      throw this.handleError(error, 'Failed to get series image IDs');
-    }
-  }
-
-  // Lägg till getSeries metod
-  async getSeries(seriesId: string): Promise<DicomSeries> {
-    const response = await axios.get(`${this.baseUrl}/series/${seriesId}`);
-    return response.data;
-  }
-
-  // Uppdatera registerImageLoader
-  registerImageLoader() {
-    // Använd any för att kringgå typkontroll
-    (cornerstone.imageLoader as any).registerImageLoader('dicom', this.loadImage.bind(this));
-  }
-
-  private async loadImage(imageId: string): Promise<IImageLoadObject> {
-    const filePath = imageId.replace('dicom://', '');
-    
-    try {
-      const response = await axios.get(
-        `${this.baseUrl}/image`,
-        { 
-          params: { path: filePath },
-          responseType: 'json'
-        }
-      );
+      console.log('[DicomService] Fetching imageIds with options:', options);
+      const response = await axios.get(`${this.baseUrl}/imageIds`, { params: options });
       
-      const imageData = response.data;
-      
-      const image = {
-        imageId,
-        minPixelValue: 0,
-        maxPixelValue: 255,
-        slope: imageData.rescaleSlope || 1,
-        intercept: imageData.rescaleIntercept || 0,
-        windowCenter: imageData.windowCenter,
-        windowWidth: imageData.windowWidth,
-        getPixelData: () => {
-          const pixelData = new Uint16Array(imageData.rows * imageData.columns);
-          for (let y = 0; y < imageData.rows; y++) {
-            for (let x = 0; x < imageData.columns; x++) {
-              pixelData[y * imageData.columns + x] = imageData.pixelData[y][x];
-            }
-          }
-          return pixelData;
-        },
-        rows: imageData.rows,
-        columns: imageData.columns,
-        height: imageData.rows,
-        width: imageData.columns,
-        color: false,
-        columnPixelSpacing: imageData.pixelSpacing?.[0] || 1,
-        rowPixelSpacing: imageData.pixelSpacing?.[1] || 1,
-        sizeInBytes: imageData.rows * imageData.columns * 2
-      };
-      
-      return {
-        image,
-        imageId
-      };
+      // Returnerar imageIds direkt från API:et 
+      // (dessa är redan i wadouri: format från backend)
+      return response.data.map((item: any) => item.imageId);
     } catch (error) {
-      throw this.handleError(error, 'Failed to load image');
-    }
-  }
-
-  async getImageIds(seriesInstanceUid: string): Promise<string[]> {
-    try {
-      // Hämta serien för att få instances
-      const series = await this.getSeries(seriesInstanceUid);
-      if (!series?.instances) {
-        throw new Error('No instances found');
-      }
-
-      // Skapa Cornerstone imageIds baserat på filsökvägar
-      return series.instances.map(instance => 
-        `dicom://${instance.file_path}`
-      );
-    } catch (error) {
+      console.error('Error getting image IDs:', error);
       throw this.handleError(error, 'Failed to get image IDs');
     }
   }
 
-  async loadAndCacheImage(imageId: string) {
-    const response = await fetch(imageId);
-    const arrayBuffer = await response.arrayBuffer();
-    return cornerstone.imageLoader.createAndCacheLocalImage(imageId, arrayBuffer);
+  // Registrera WebWorker med WebWorkerManager
+  registerCornerstoneWorker(): boolean {
+    try {
+      // Hämta WebWorkerManager från Cornerstone
+      const webWorkerManager = (cornerstone as any).getWebWorkerManager();
+      
+      if (!webWorkerManager) {
+        console.warn('[DicomService] WebWorkerManager not available in this version of Cornerstone');
+        return false;
+      }
+      
+      // Skapa en WebWorker-funktion enligt dokumentationen
+      const workerFn = () => {
+        return new Worker(
+          new URL('/cornerstone-worker.js', window.location.origin),
+          { name: 'cornerstoneWorker' }
+        );
+      };
+      
+      // Registrera arbetaren med WebWorkerManager
+      webWorkerManager.registerWorker('cornerstoneImageLoader', workerFn, {
+        maxWorkerInstances: navigator.hardwareConcurrency || 2,
+        autoTerminateOnIdle: { enabled: true, idleTimeThreshold: 60000 }
+      });
+      
+      console.log('[DicomService] WebWorker registered with WebWorkerManager');
+      return true;
+    } catch (error) {
+      console.error('[DicomService] Failed to register WebWorker:', error);
+      return false;
+    }
   }
 
+  // Exekvera en WebWorker-task
+  async executeWorkerTask(methodName: string, args: any) {
+    try {
+      const webWorkerManager = (cornerstone as any).getWebWorkerManager();
+      return await webWorkerManager.executeTask(
+        'cornerstoneImageLoader', 
+        methodName, 
+        args,
+        {
+          callbacks: [
+            (progress: any) => {
+              console.debug('WebWorker progress:', progress);
+            },
+          ],
+        }
+      );
+    } catch (error) {
+      console.error(`[DicomService] Failed to execute worker task ${methodName}:`, error);
+      throw error;
+    }
+  }
+
+  // Uppdatera anropet till this.registerCornerstoneWorker()
+  async initializeDICOMImageLoader(): Promise<void> {
+    try {
+      const loader = cornerstoneDICOMImageLoader as any;
+      
+      // Försök registrera WebWorker enligt dokumentationen
+      if (!this.registerCornerstoneWorker()) {
+        // Fallback utan WebWorker
+        console.warn('[DicomService] Using fallback without WebWorkers');
+        
+        loader.configure({
+          useWebWorkers: false,
+          decodeConfig: {
+            preferredOutputPixelType: 'Uint16Array',
+            convertFloatPixelDataToInt: false,
+            use16BitDataType: true
+          },
+          codecs: {
+            openjpegDecoder: false,
+            openjphDecoder: false,
+            cherlsDecoder: false
+          },
+          beforeSend: (xhr: XMLHttpRequest) => {
+            // Headers här om det behövs
+          },
+          errorInterceptor: (error: Error) => {
+            console.error('DICOM Image Loader error:', error);
+          }
+        });
+      } else {
+        // Konfiguration med WebWorkers
+        loader.configure({
+          useWebWorkers: true,
+          decodeConfig: {
+            preferredOutputPixelType: 'Uint16Array',
+            convertFloatPixelDataToInt: false,
+            use16BitDataType: true
+          },
+          codecs: {
+            openjpegDecoder: false,
+            openjphDecoder: false,
+            cherlsDecoder: false
+          },
+          beforeSend: (xhr: XMLHttpRequest) => {
+            // Headers här om det behövs
+          },
+          errorInterceptor: (error: Error) => {
+            console.error('DICOM Image Loader error:', error);
+          }
+        });
+        
+        // Testa att köra en enkel task
+        try {
+          await this.executeWorkerTask('decodeImageFrame', { testParam: 'Hello from main thread' });
+          console.log('[DicomService] WebWorker successfully executed test task');
+        } catch (e) {
+          console.warn('[DicomService] WebWorker test task failed, falling back to local execution');
+          loader.configure({ useWebWorkers: false });
+        }
+      }
+      
+      // Registrera WADO-URI-schemat oavsett konfiguration
+      loader.external.cornerstone = cornerstone;
+      loader.wadouri.register(cornerstone);
+      
+      console.log('[DicomService] DICOM Image Loader initialized');
+    } catch (error) {
+      console.error('Error initializing DICOM Image Loader:', error);
+      throw error;
+    }
+  }
+
+  // Hämta metdata för en specifik SOP-instans
+  async getInstanceMetadata(sopInstanceUid: string): Promise<any> {
+    try {
+      const response = await axios.get(`${this.baseUrl}/metadata/${sopInstanceUid}`);
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error, 'Failed to get instance metadata');
+    }
+  }
+
+  // Registrera metadata provider för Cornerstone
+  registerMetadataProvider() {
+    cornerstone.metaData.addProvider((type: string, imageId: string) => {
+      // Extrahera sopInstanceUid från imageId
+      const sopInstanceUid = imageId.substring(imageId.lastIndexOf('/') + 1);
+      
+      // Returnera direkt från cache om det finns
+      // Annars hämtas det genom API:et när det behövs
+      return null; // Låt Cornerstone begära metadata on-demand
+    });
+  }
+
+  // Uppdaterad initialize-metod för att inkludera DICOM Image Loader
   async initialize() {
     // Initiera Cornerstone3D
     await cornerstone.init();
     await csTools3dInit();
-
+    
+    // Initiera DICOM Image Loader
+    await this.initializeDICOMImageLoader();
+    
     // Registrera metadata provider
-    cornerstone.metaData.addProvider((type: string, imageId: string) => {
-      return {
-        imagePixelModule: {
-          samplesPerPixel: 1,
-          photometricInterpretation: 'MONOCHROME2',
-          rows: 512,
-          columns: 512,
-          bitsAllocated: 16,
-          bitsStored: 16,
-          highBit: 15,
-          pixelRepresentation: 0,
-        }
-      };
-    });
+    this.registerMetadataProvider();
+    
+    console.log('[DicomService] Cornerstone och DICOM Image Loader initialiserade');
   }
 
-  // Lägg till en prefetch-metod
-  async prefetchImages(imageIds: string[], priority = 0): Promise<void> {
-    imageIds.forEach(imageId => {
-      // Använd any för att kringgå typkontroll
-      (cornerstone.imageLoader as any).loadAndCacheImage(imageId);
-    });
-  }
-
-  // Lägg till en metod för att ladda hela volymen på en gång
+  // Ersätt den befintliga loadVolumeForSeries med denna
   async loadVolumeForSeries(seriesId: string): Promise<cornerstone.Types.IImageVolume> {
     try {
-      const imageIds = await this.getImageIds(seriesId);
+      // Hämta imageIds med den nya metoden
+      const imageIds = await this.getImageIds({ seriesId });
+      
+      if (imageIds.length === 0) {
+        throw new Error('No images found for series');
+      }
+      
+      console.log(`[DicomService] Creating volume for ${imageIds.length} images`);
       
       // Skapa en volym med Cornerstone3D
-      // Använd any för att kringgå typkontroll
-      const volume = await (cornerstone.volumeLoader as any).createAndCacheVolume(
-        `volume-${seriesId}`,
-        {
-          imageIds,
-          // Lägg till dessa fält för att uppfylla VolumeOptions
-          dimensions: [512, 512, imageIds.length], // Standardvärden
-          spacing: [1, 1, 1], // Standardvärden
-          orientation: [1, 0, 0, 0, 1, 0, 0, 0, 1] // Identitetsmatris
-        } as VolumeOptions
+      const volumeId = `volume-${seriesId}`;
+      
+      // Använd 'any' för att helt kringgå typkontrollen
+      const volumeOptions = {
+        imageIds,
+        dimensions: [512, 512, imageIds.length],
+        spacing: [1, 1, 1],
+        orientation: [1, 0, 0, 0, 1, 0, 0, 0, 1]
+      } as any;
+      
+      // Skapa volymen
+      const volume = await cornerstone.volumeLoader.createAndCacheVolume(
+        volumeId,
+        volumeOptions
       );
       
-      // Ladda volymen
+      // Starta laddningen av volymen
       await volume.load();
       
       return volume;
@@ -587,23 +636,6 @@ export class DicomService {
     } catch (error) {
       console.error('Error importing DICOM data:', error);
       throw error;
-    }
-  }
-
-  // Lägg till getImageIdsForSeries-metoden i dicomService.ts
-  async getImageIdsForSeries(seriesId: string): Promise<string[]> {
-    try {
-      // Hämta instanser för serien
-      const response = await axios.get(`${this.baseUrl}/series/${seriesId}/instances`);
-      const instances = response.data;
-      
-      // Skapa imageIds med dicom:// schema
-      return instances.map((instance: any) => {
-        return `dicom://${instance.relative_path}`;
-      });
-    } catch (error) {
-      console.error('Error getting image IDs for series:', error);
-      throw this.handleError(error, 'Failed to get image IDs for series');
     }
   }
 

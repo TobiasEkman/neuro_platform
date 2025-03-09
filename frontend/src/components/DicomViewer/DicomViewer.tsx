@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState} from 'react';
-import styled from 'styled-components';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { useParams } from 'react-router-dom';
 import dicomService from '../../services/dicomService';
-import { DicomStudy, DicomSeries} from '../../types/medical';
+import { DicomStudy, DicomSeries } from '../../types/medical';
 import { Patient } from '../../types/patient';
 import {
   ViewerContainer,
@@ -9,127 +9,91 @@ import {
   ViewerPanel,
   Canvas,
   Controls,
-  ViewerLabel
+  ViewerLabel,
+  MainContainer,
+  SidePanel,
+  ListContainer,
+  ListItem,
+  ListTitle,
+  SeriesItem
 } from './styles';
-import * as cornerstone from '@cornerstonejs/core';
 import { 
   RenderingEngine,
   Types,
   Enums,
-  cache as cornerstoneCache,
-  volumeLoader as cornerstoneVolumeLoader,
-  setVolumesForViewports as cornerstoneSetVolumesForViewports
+  cache as cornerstoneCache
 } from '@cornerstonejs/core';
-
-
-// Styled components
-const MainContainer = styled.div`
-  display: flex;
-  height: calc(100vh - 64px);
-  overflow: hidden;
-`;
-
-const SidePanel = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  width: 300px;
-  min-width: 300px;
-  overflow-y: auto;
-  background: ${props => props.theme.colors.background.secondary};
-  border-radius: 8px;
-  padding: 1rem;
-`;
-
-const ListContainer = styled.div`
-  flex: 0 0 300px;
-  overflow-y: auto;
-  padding: 1rem;
-  background: ${props => props.theme.colors.background.secondary};
-`;
-
-const ListItem = styled.div<{ isSelected?: boolean }>`
-  padding: 0.75rem;
-  cursor: pointer;
-  background: ${props => props.isSelected ? props.theme.colors.primary : 'transparent'};
-  color: ${props => props.isSelected ? '#ffffff' : props.theme.colors.text.primary};
-  border-bottom: 1px solid ${props => props.theme.colors.border};
-
-  &:hover {
-    background: ${props => props.isSelected ? props.theme.colors.primary : props.theme.colors.background.hover};
-    color: ${props => props.isSelected ? '#ffffff' : props.theme.colors.text.primary};
-  }
-`;
-
-const ListTitle = styled.h3`
-  margin: 0 0 1rem 0;
-  padding: 0.5rem;
-  border-bottom: 1px solid ${props => props.theme.colors.border};
-`;
-
-const SeriesItem = styled.div<{ isSelected: boolean }>`
-  padding: 0.75rem;
-  cursor: pointer;
-  background: ${props => props.isSelected ? props.theme.colors.primary : 'transparent'};
-  color: ${props => props.isSelected ? '#ffffff' : props.theme.colors.text.primary};
-  border-bottom: 1px solid ${props => props.theme.colors.border};
-
-  &:hover {
-    background: ${props => props.isSelected ? props.theme.colors.primary : props.theme.colors.background.hover};
-  }
-`;
 
 interface DicomViewerProps {
   seriesId: string | undefined;
-  segmentationMask: number[] | null;
-  showSegmentation: boolean;
+  segmentationMask?: number[] | null;
+  showSegmentation?: boolean;
   onSeriesSelect?: (seriesId: string) => void;
 }
 
 const DicomViewer: React.FC<DicomViewerProps> = ({
-  seriesId,
+  seriesId: initialSeriesId,
   segmentationMask,
   showSegmentation,
   onSeriesSelect
 }) => {
+  // Hämta studyId från URL-parametrar om det finns
+  const { studyId } = useParams<{ studyId?: string }>();
+  
+  // State för Canvas-referenser
   const axialRef = useRef<HTMLCanvasElement>(null);
-  const sagittalRef = useRef<HTMLCanvasElement>(null);
-  const coronalRef = useRef<HTMLCanvasElement>(null);
   const [renderingEngine, setRenderingEngine] = useState<RenderingEngine | null>(null);
   
+  // State för patientdata
   const [patients, setPatients] = useState<Patient[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
   const [studies, setStudies] = useState<DicomStudy[]>([]);
-  const [selectedStudyId, setSelectedStudyId] = useState<string | null>(null);
+  const [selectedStudyId, setSelectedStudyId] = useState<string | null>(studyId || null);
   const [series, setSeries] = useState<DicomSeries[]>([]);
-  const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(null);
-  const [currentSlice, setCurrentSlice] = useState(0);
-  const [totalSlices, setTotalSlices] = useState(0);
-  const [toolGroup, setToolGroup] = useState<any>(null);
+  const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(initialSeriesId || null);
+  
+  // State för kontroller
   const [useMprView, setUseMprView] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   // Ladda patienter när komponenten monteras
   useEffect(() => {
     loadPatients();
   }, []);
 
+  // Hantera initialSeriesId om det ändras externt
+  useEffect(() => {
+    if (initialSeriesId && initialSeriesId !== selectedSeriesId) {
+      setSelectedSeriesId(initialSeriesId);
+      handleSeriesSelect(initialSeriesId);
+    }
+  }, [initialSeriesId]);
+
+  // Hantera studyId från URL om det finns
+  useEffect(() => {
+    if (studyId && studyId !== selectedStudyId) {
+      setSelectedStudyId(studyId);
+      loadSeries(studyId);
+    }
+  }, [studyId]);
+
   // Initiera Cornerstone
   useEffect(() => {
     const initCornerstone = async () => {
       try {
-        // Initiera Cornerstone Core
-        await cornerstone.init();
-        
-        // Registrera DICOM-bildladdare
-        await dicomService.registerImageLoader();
+        setLoading(true);
+        // Initiera DicomService (som nu inkluderar Cornerstone och DICOM Image Loader)
+        await dicomService.initialize();
         
         // Skapa rendering engine
         const engine = new RenderingEngine('myRenderingEngine');
         setRenderingEngine(engine);
         
         console.log('Cornerstone initialized successfully');
+        setLoading(false);
       } catch (error) {
         console.error('Error initializing Cornerstone:', error);
+        setLoading(false);
       }
     };
     
@@ -164,9 +128,12 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
     try {
       const fetchedStudies = await dicomService.getStudiesForPatient(patientId);
       setStudies(fetchedStudies);
-      setSelectedStudyId(null);
-      setSeries([]);
-      setSelectedSeriesId(null);
+      
+      // Om vi har studier och inget är valt, välj det första
+      if (fetchedStudies.length > 0 && !selectedStudyId) {
+        setSelectedStudyId(fetchedStudies[0].study_instance_uid);
+        loadSeries(fetchedStudies[0].study_instance_uid);
+      }
     } catch (error) {
       console.error('Failed to load studies:', error);
     }
@@ -175,8 +142,14 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
   const loadSeries = async (studyId: string) => {
     try {
       const study = await dicomService.getStudy(studyId);
-      setSeries(study.series);
-      setSelectedSeriesId(null);
+      setSeries(study.series || []);
+      
+      // Om vi har serier och inget är valt, välj den första
+      if (study.series && study.series.length > 0 && !selectedSeriesId) {
+        const firstSeriesId = study.series[0].series_instance_uid;
+        setSelectedSeriesId(firstSeriesId);
+        handleSeriesSelect(firstSeriesId);
+      }
     } catch (error) {
       console.error('Failed to load series:', error);
     }
@@ -192,152 +165,83 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
       }
 
       // Ladda och visa serien med Cornerstone3D
-      await renderSeriesWithCornerstone(seriesId);
-
+      await renderSeries(seriesId);
     } catch (error) {
       console.error('Failed to load series:', error);
       setSelectedSeriesId(null);
     }
   };
 
-  const renderSeriesWithCornerstone = async (seriesId: string) => {
+  // Förenkla renderingsfunktionen
+  const renderSeries = async (seriesId: string) => {
     try {
-      if (!axialRef.current || !sagittalRef.current || !coronalRef.current) {
-        console.error('Viewport elements not available');
+      if (!axialRef.current || !renderingEngine) {
+        console.error('Viewport element or rendering engine not available');
         return;
       }
       
-      const engine = renderingEngine;
-      if (!engine) {
-        console.error('Rendering engine not initialized');
-        return;
-      }
+      setLoading(true);
       
       // Hämta bilderna för serien
-      const imageIds = await dicomService.getImageIdsForSeries(seriesId);
+      const imageIds = await dicomService.getImageIds({ seriesId });
       
-      if (useMprView) {
-        // === VOLYM-RENDERING (MPR) ===
-        
-        // Definiera volym-ID
-        const volumeId = `volume-${seriesId}`;
-        
-        // Skapa volym i minnet
-        const volume = await cornerstoneVolumeLoader.createAndCacheVolume(volumeId, {
-          imageIds,
-          dimensions: [512, 512, imageIds.length],
-          spacing: [1, 1, 1],
-          orientation: [1, 0, 0, 0, 1, 0, 0, 0, 1]
-        } as any);
-        
-        // Definiera viewports för olika orienteringar
-        const viewportInput = [
-          {
-            viewportId: 'CT_AXIAL',
-            element: axialRef.current,
-            type: Enums.ViewportType.ORTHOGRAPHIC,
-            defaultOptions: {
-              orientation: Enums.OrientationAxis.AXIAL,
-            },
-          },
-          {
-            viewportId: 'CT_SAGITTAL',
-            element: sagittalRef.current,
-            type: Enums.ViewportType.ORTHOGRAPHIC,
-            defaultOptions: {
-              orientation: Enums.OrientationAxis.SAGITTAL,
-            },
-          },
-          {
-            viewportId: 'CT_CORONAL',
-            element: coronalRef.current,
-            type: Enums.ViewportType.ORTHOGRAPHIC,
-            defaultOptions: {
-              orientation: Enums.OrientationAxis.CORONAL,
-            },
-          },
-        ];
-        
-        // Sätt upp viewports
-        engine.setViewports(viewportInput);
-        
-        // Ladda volymen
-        await volume.load();
-        
-        // Sätt volymen för alla viewports
-        cornerstoneSetVolumesForViewports(
-          engine,
-          [{ volumeId }],
-          ['CT_AXIAL', 'CT_SAGITTAL', 'CT_CORONAL']
-        );
-        
-        // Lägg till viewports i toolGroup om det finns
-        if (toolGroup) {
-          toolGroup.addViewport('CT_AXIAL', 'myRenderingEngine');
-          toolGroup.addViewport('CT_SAGITTAL', 'myRenderingEngine');
-          toolGroup.addViewport('CT_CORONAL', 'myRenderingEngine');
-        }
-      } else {
-        // === STACK-RENDERING ===
-        
-        // Skapa viewport med explicit typ
-        const viewportId = 'CT_AXIAL_STACK';
-        const viewportInput = {
-          viewportId,
-          element: axialRef.current,
-          type: Enums.ViewportType.STACK,
-        };
-        
-        // Använd enableElement istället för setViewports
-        engine.enableElement(viewportInput);
-        
-        // Hämta viewport och sätt stack
-        const viewport = engine.getViewport(viewportId) as Types.IStackViewport;
-        viewport.setStack(imageIds);
-        
-        // Rendera viewport
-        viewport.render();
-        
-        // Lägg till viewport i toolGroup
-        if (toolGroup) {
-          toolGroup.addViewport(viewportId, 'myRenderingEngine');
-        }
+      if (imageIds.length === 0) {
+        console.error('No images found for series');
+        setLoading(false);
+        return;
       }
+      
+      console.log(`Rendering ${imageIds.length} images from series ${seriesId}`);
+      
+      // Skapa viewport
+      const viewportId = 'CT_AXIAL_STACK';
+      
+      // Skapa viewport-input
+      const viewportInput = {
+        viewportId,
+        element: axialRef.current,
+        type: Enums.ViewportType.STACK,
+      };
+      
+      // I Cornerstone3D kommer enableElement att ersätta en befintlig viewport 
+      // med samma ID om den redan finns, så vi behöver inte explicit ta bort den först
+      renderingEngine.enableElement(viewportInput);
+      
+      // Hämta viewport och sätt stack
+      const viewport = renderingEngine.getViewport(viewportId) as Types.IStackViewport;
+      
+      await viewport.setStack(imageIds);
+      
+      // Sätt bra window/level om möjligt
+      viewport.setProperties({
+        voiRange: {
+          // CT Window för hjärna
+          lower: 0,
+          upper: 80
+        }
+      });
+      
+      // Rendera viewport
+      viewport.render();
+      
+      setLoading(false);
+      
     } catch (error) {
       console.error('Error rendering series:', error);
+      setLoading(false);
     }
   };
-
-  // Hantera segmentering
-  useEffect(() => {
-    if (!showSegmentation || !segmentationMask || !axialRef.current || !renderingEngine) return;
-
-    try {
-      const viewport = renderingEngine.getViewport('axial-viewport') as Types.IStackViewport;
-      if (!viewport) return;
-
-      // Lägg till segmenteringslager
-      // Obs: Detta är en förenklad implementation och kan behöva anpassas
-      // beroende på hur segmenteringsmasken är strukturerad
-      if ('addLayer' in viewport) {
-        viewport.addLayer({
-          imageIds: ['segmentation'],
-          options: {
-            opacity: 0.5,
-            colormap: 'hsv',
-            data: segmentationMask
-          }
-        });
-        renderingEngine.render();
-      }
-    } catch (error) {
-      console.error('Error applying segmentation mask:', error);
-    }
-  }, [segmentationMask, showSegmentation, renderingEngine]);
 
   const handlePatientSelect = (patient: Patient) => {
     setSelectedPatientId(patient.patient_id);
     loadStudies(patient.patient_id);
+  };
+
+  const toggleMprView = () => {
+    setUseMprView(prev => !prev);
+    if (selectedSeriesId) {
+      renderSeries(selectedSeriesId);
+    }
   };
 
   return (
@@ -381,8 +285,8 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
                 isSelected={series.series_instance_uid === selectedSeriesId}
                 onClick={() => handleSeriesSelect(series.series_instance_uid)}
               >
-                <div>Serie {series.series_number}</div>
-                <div>{series.description || 'Ingen beskrivning'}</div>
+                <div>Series {series.series_number}</div>
+                <div>{series.description || 'No description'}</div>
               </SeriesItem>
             ))}
           </ListContainer>
@@ -390,23 +294,16 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
 
         <ViewerGrid>
           <ViewerPanel>
-            <ViewerLabel>Axial</ViewerLabel>
+            <ViewerLabel>
+              {loading ? 'Loading...' : 'DICOM-image'}
+            </ViewerLabel>
             <Canvas ref={axialRef} />
+            <Controls>
+              <button onClick={toggleMprView}>
+                {useMprView ? 'Show Stack' : 'Show MPR'} 
+              </button>
+            </Controls>
           </ViewerPanel>
-
-          <ViewerPanel>
-            <ViewerLabel>Sagittal</ViewerLabel>
-            <Canvas ref={sagittalRef} />
-          </ViewerPanel>
-
-          <ViewerPanel>
-            <ViewerLabel>Coronal</ViewerLabel>
-            <Canvas ref={coronalRef} />
-          </ViewerPanel>
-
-          <Controls>
-            <div>Bild: {currentSlice + 1}/{totalSlices}</div>
-          </Controls>
         </ViewerGrid>
       </MainContainer>
     </ViewerContainer>

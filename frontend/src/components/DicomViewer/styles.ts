@@ -118,4 +118,42 @@ export const SideNavItem = styled.div`
     color: ${props => props.theme.colors.primary};
     background: ${props => props.theme.colors.background.hover};
   }
+`;
+
+export const ListContainer = styled.div`
+  flex: 0 0 300px;
+  overflow-y: auto;
+  padding: 1rem;
+  background: ${props => props.theme.colors.background.secondary};
+`;
+
+export const ListItem = styled.div<{ isSelected?: boolean }>`
+  padding: 0.75rem;
+  cursor: pointer;
+  background: ${props => props.isSelected ? props.theme.colors.primary : 'transparent'};
+  color: ${props => props.isSelected ? '#ffffff' : props.theme.colors.text.primary};
+  border-bottom: 1px solid ${props => props.theme.colors.border};
+
+  &:hover {
+    background: ${props => props.isSelected ? props.theme.colors.primary : props.theme.colors.background.hover};
+    color: ${props => props.isSelected ? '#ffffff' : props.theme.colors.text.primary};
+  }
+`;
+
+export const ListTitle = styled.h3`
+  margin: 0 0 1rem 0;
+  padding: 0.5rem;
+  border-bottom: 1px solid ${props => props.theme.colors.border};
+`;
+
+export const SeriesItem = styled.div<{ isSelected: boolean }>`
+  padding: 0.75rem;
+  cursor: pointer;
+  background: ${props => props.isSelected ? props.theme.colors.primary : 'transparent'};
+  color: ${props => props.isSelected ? '#ffffff' : props.theme.colors.text.primary};
+  border-bottom: 1px solid ${props => props.theme.colors.border};
+
+  &:hover {
+    background: ${props => props.isSelected ? props.theme.colors.primary : props.theme.colors.background.hover};
+  }
 `; 
