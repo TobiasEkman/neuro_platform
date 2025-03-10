@@ -16,6 +16,14 @@ import { init as csTools3dInit } from '@cornerstonejs/tools';
 // Importera Cornerstone DICOM Image Loader
 import * as cornerstoneDICOMImageLoader from '@cornerstonejs/dicom-image-loader';
 
+// Lägg till typdeklaration för Charls-codec 
+type CharlsCodec = { 
+  setConfig?: (config: { wasmPath: string }) => void 
+};
+
+// Ta bort den befintliga modulutökningen för dicom-image-loader
+// declare module '@cornerstonejs/dicom-image-loader' { ... }
+
 const convertStudy = (study: DicomStudy): DicomStudy => {
   if (!study) {
     console.error('Received undefined study in convertStudy');
@@ -72,6 +80,21 @@ interface VolumeOptions {
   spacing?: number[];
   orientation?: number[];
   voxelData?: any;
+}
+
+interface CustomLoaderOptions {
+  maxWebWorkers: number;
+  webWorkerPath: string;
+  taskConfiguration: {
+    decodeTask: {
+      codecsPath: string;
+    };
+  };
+}
+
+// Deklarera eget interface för initfunktionen
+declare module '@cornerstonejs/dicom-image-loader' {
+  export function init(options: CustomLoaderOptions): void;
 }
 
 export class DicomService {
@@ -376,7 +399,7 @@ export class DicomService {
   registerCornerstoneWorker(): boolean {
     try {
       // Hämta WebWorkerManager från Cornerstone
-      const webWorkerManager = (cornerstone as any).getWebWorkerManager();
+      const webWorkerManager = cornerstone.getWebWorkerManager();
       
       if (!webWorkerManager) {
         console.warn('[DicomService] WebWorkerManager not available in this version of Cornerstone');
@@ -391,7 +414,7 @@ export class DicomService {
         );
       };
       
-      // Registrera arbetaren med WebWorkerManager
+      // Registrera arbetaren med WebWorkerManager enligt dokumentationen
       webWorkerManager.registerWorker('cornerstoneImageLoader', workerFn, {
         maxWorkerInstances: navigator.hardwareConcurrency || 2,
         autoTerminateOnIdle: { enabled: true, idleTimeThreshold: 60000 }
@@ -408,7 +431,11 @@ export class DicomService {
   // Exekvera en WebWorker-task
   async executeWorkerTask(methodName: string, args: any) {
     try {
-      const webWorkerManager = (cornerstone as any).getWebWorkerManager();
+      const webWorkerManager = cornerstone.getWebWorkerManager();
+      if (!webWorkerManager) {
+        throw new Error('WebWorkerManager not available');
+      }
+      
       return await webWorkerManager.executeTask(
         'cornerstoneImageLoader', 
         methodName, 
@@ -430,69 +457,70 @@ export class DicomService {
   // Uppdatera anropet till this.registerCornerstoneWorker()
   async initializeDICOMImageLoader(): Promise<void> {
     try {
+      // Kontrollera att WebWorker-filer finns tillgängliga
+      const filesToCheck = [
+        '/cornerstoneWADOImageLoaderWebWorker.min.js',
+        '/cornerstoneWADOImageLoaderCodecs.min.js',
+        '/charlswasm_decode.wasm'
+      ];
+      
+      for (const file of filesToCheck) {
+        try {
+          const response = await fetch(file, { method: 'HEAD' });
+          if (!response.ok) {
+            console.warn(`[DicomService] Fil saknas eller otillgänglig: ${file}`);
+          }
+        } catch (error) {
+          console.warn(`[DicomService] Kunde inte kontrollera fil: ${file}`, error);
+        }
+      }
+      
       const loader = cornerstoneDICOMImageLoader as any;
       
-      // Försök registrera WebWorker enligt dokumentationen
-      if (!this.registerCornerstoneWorker()) {
-        // Fallback utan WebWorker
-        console.warn('[DicomService] Using fallback without WebWorkers');
+      // Importera codec-charls med dynamisk import och typdefinition
+      try {
+        // Lägg till explicit typtvång direkt vid importen för att tysta TypeScript
+        const charlsModule = await import('@cornerstonejs/codec-charls' as any);
+        const charlsCodec = charlsModule as unknown as CharlsCodec;
         
-        loader.configure({
-          useWebWorkers: false,
-          decodeConfig: {
-            preferredOutputPixelType: 'Uint16Array',
-            convertFloatPixelDataToInt: false,
-            use16BitDataType: true
-          },
-          codecs: {
-            openjpegDecoder: false,
-            openjphDecoder: false,
-            cherlsDecoder: false
-          },
-          beforeSend: (xhr: XMLHttpRequest) => {
-            // Headers här om det behövs
-          },
-          errorInterceptor: (error: Error) => {
-            console.error('DICOM Image Loader error:', error);
-          }
-        });
-      } else {
-        // Konfiguration med WebWorkers
-        loader.configure({
-          useWebWorkers: true,
-          decodeConfig: {
-            preferredOutputPixelType: 'Uint16Array',
-            convertFloatPixelDataToInt: false,
-            use16BitDataType: true
-          },
-          codecs: {
-            openjpegDecoder: false,
-            openjphDecoder: false,
-            cherlsDecoder: false
-          },
-          beforeSend: (xhr: XMLHttpRequest) => {
-            // Headers här om det behövs
-          },
-          errorInterceptor: (error: Error) => {
-            console.error('DICOM Image Loader error:', error);
-          }
-        });
-        
-        // Testa att köra en enkel task
-        try {
-          await this.executeWorkerTask('decodeImageFrame', { testParam: 'Hello from main thread' });
-          console.log('[DicomService] WebWorker successfully executed test task');
-        } catch (e) {
-          console.warn('[DicomService] WebWorker test task failed, falling back to local execution');
-          loader.configure({ useWebWorkers: false });
+        if (charlsCodec.setConfig) {
+          charlsCodec.setConfig({
+            wasmPath: '/charlswasm_decode.wasm',
+          });
+          console.log('[DicomService] Charls codec konfigurerad');
+        } else {
+          console.warn('[DicomService] Charls codec hittades men setConfig är inte tillgänglig');
         }
+      } catch (error) {
+        console.warn('[DicomService] Kunde inte ladda Charls codec:', error);
+      }
+
+      // Initiera DICOM Image Loader med WebWorkers
+      cornerstoneDICOMImageLoader.init({
+        maxWebWorkers: navigator.hardwareConcurrency || 1,
+        webWorkerPath: '/cornerstoneWADOImageLoaderWebWorker.min.js',
+        taskConfiguration: {
+          decodeTask: {
+            codecsPath: '/cornerstoneWADOImageLoaderCodecs.min.js',
+          },
+        },
+      });
+      
+      // Registrera vår anpassade worker med Cornerstone WebWorkerManager
+      // enligt dokumentationen
+      this.registerCornerstoneWorker();
+      
+      // Vi kan också fortsätta registrera de specifika filerna manuellt genom intern API
+      if (loader.internal && loader.internal.config) {
+        loader.internal.config.webWorkerPath = '/cornerstoneWADOImageLoaderWebWorker.min.js';
+        loader.internal.config.codecsPath = '/cornerstoneWADOImageLoaderCodecs.min.js';
       }
       
       // Registrera WADO-URI-schemat oavsett konfiguration
       loader.external.cornerstone = cornerstone;
       loader.wadouri.register(cornerstone);
       
-      console.log('[DicomService] DICOM Image Loader initialized');
+      console.log('[DicomService] DICOM Image Loader and custom workers initialized');
     } catch (error) {
       console.error('Error initializing DICOM Image Loader:', error);
       throw error;
