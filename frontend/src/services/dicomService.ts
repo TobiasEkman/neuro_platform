@@ -10,11 +10,19 @@ import {
 import { logger } from '../utils/logger';
 
 import * as cornerstone from '@cornerstonejs/core';
+import * as csTools from '@cornerstonejs/tools';
 
-import { init as csTools3dInit } from '@cornerstonejs/tools';
-
-// Importera Cornerstone DICOM Image Loader
 import * as cornerstoneDICOMImageLoader from '@cornerstonejs/dicom-image-loader';
+
+// Använd typassertioner för att få verktygen
+const toolsInit = (csTools as any).init;
+const addTool = (csTools as any).addTool;
+const StackScrollTool = (csTools as any).StackScrollTool;
+const ZoomTool = (csTools as any).ZoomTool;
+const PanTool = (csTools as any).PanTool;
+const WindowLevelTool = (csTools as any).WindowLevelTool;
+
+
 
 // Lägg till typdeklaration för Charls-codec 
 type CharlsCodec = { 
@@ -155,36 +163,6 @@ export class DicomService {
     }
   }
 
-  // Get image data for a specific instance
-  async getImageData(path: string): Promise<Response> {
-    try {
-      const encodedPath = encodeURIComponent(path);
-      const url = `${this.baseUrl}/image?path=${encodedPath}`;
-
-      const response = await fetch(url);
-      
-      // Debug: Kolla exakt vad vi får
-      const clone = response.clone();
-      const rawData = await clone.text();
-      console.log('[dicomService] Raw response:', rawData.substring(0, 200)); // Första 200 tecken
-      
-      const data = JSON.parse(rawData);
-      console.log('[dicomService] Parsed data structure:', {
-        keys: Object.keys(data),
-        dataType: typeof data,
-        hasPixelData: 'pixelData' in data,
-        hasDimensions: 'rows' in data && 'columns' in data
-      });
-
-      return new Response(rawData, {
-        headers: { 'Content-Type': 'application/json' }
-      });
-
-    } catch (error) {
-      console.error('[dicomService] Error:', error);
-      throw error;
-    }
-  }
 
   // Search studies with optional patient filter
   async searchStudies(query: string): Promise<SearchResult[]> {
@@ -553,7 +531,10 @@ export class DicomService {
   async initialize() {
     // Initiera Cornerstone3D
     await cornerstone.init();
-    await csTools3dInit();
+    await toolsInit();
+    
+    // Registrera verktyg globalt
+    this.registerTools();
     
     // Initiera DICOM Image Loader
     await this.initializeDICOMImageLoader();
@@ -561,7 +542,24 @@ export class DicomService {
     // Registrera metadata provider
     this.registerMetadataProvider();
     
-    console.log('[DicomService] Cornerstone och DICOM Image Loader initialiserade');
+    console.log('[DicomService] Cornerstone, verktyg och DICOM Image Loader initialiserade');
+  }
+
+  // Ny metod för att registrera verktyg globalt
+  registerTools() {
+    try {
+      // Registrera verktyg globalt med addTool (separata anrop)
+      addTool(StackScrollTool);
+      addTool(ZoomTool);
+      addTool(PanTool);
+      addTool(WindowLevelTool);
+      
+      console.log('[DicomService] Verktyg registrerade globalt');
+      return true;
+    } catch (error) {
+      console.error('[DicomService] Fel vid registrering av verktyg:', error);
+      return false;
+    }
   }
 
   // Ersätt den befintliga loadVolumeForSeries med denna

@@ -15,7 +15,9 @@ import {
   ListContainer,
   ListItem,
   ListTitle,
-  SeriesItem
+  SeriesItem,
+  ToolbarContainer,
+  ToolButton
 } from './styles';
 import { 
   RenderingEngine,
@@ -23,6 +25,46 @@ import {
   Enums,
   cache as cornerstoneCache
 } from '@cornerstonejs/core';
+
+// Importera nödvändiga verktyg direkt från csTools
+import * as csTools from '@cornerstonejs/tools';
+const { 
+  ToolGroupManager, 
+  Enums: csToolsEnums 
+} = csTools as any;
+
+// Toolbar-knappdefinitioner
+interface ToolButtonDefinition {
+  name: string;
+  label: string;
+  icon: string;  // Du kan använda FontAwesome eller liknande
+  toolName: string;
+  mouseButton: number;
+}
+
+const toolButtons: ToolButtonDefinition[] = [
+  { 
+    name: 'pan', 
+    label: 'Panorera', 
+    icon: '↔️', 
+    toolName: 'PanTool',
+    mouseButton: 1 // Primär musknapp (vänster klick) 
+  },
+  { 
+    name: 'zoom', 
+    label: 'Zooma', 
+    icon: '🔍', 
+    toolName: 'ZoomTool',
+    mouseButton: 2 // Sekundär musknapp (höger klick)
+  },
+  { 
+    name: 'window', 
+    label: 'Fönster/Nivå', 
+    icon: '🌓', 
+    toolName: 'WindowLevelTool',
+    mouseButton: 1 
+  }
+];
 
 interface DicomViewerProps {
   seriesId: string | undefined;
@@ -56,6 +98,10 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
   const [useMprView, setUseMprView] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // Lägg till state för aktiv verktyg
+  const [activeTool, setActiveTool] = useState<string>('WindowLevelTool');
+  const [toolGroup, setToolGroup] = useState<any>(null);
+
   // Ladda patienter när komponenten monteras
   useEffect(() => {
     loadPatients();
@@ -77,7 +123,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
     }
   }, [studyId]);
 
-  // Initiera Cornerstone
+  // Initiera Cornerstone och verktyg
   useEffect(() => {
     const initCornerstone = async () => {
       try {
@@ -89,6 +135,27 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
         const engine = new RenderingEngine('myRenderingEngine');
         setRenderingEngine(engine);
         
+        // Skapa och konfigurera toolGroup
+        const toolGroupId = 'myToolGroup';
+        const newToolGroup = ToolGroupManager.createToolGroup(toolGroupId);
+        
+        // Lägg till alla registrerade verktyg till toolGroup
+        newToolGroup.addTool('PanTool');
+        newToolGroup.addTool('ZoomTool');
+        newToolGroup.addTool('WindowLevelTool');
+        newToolGroup.addTool('StackScrollMouseWheelTool');
+        
+        // Aktivera scrollhjulet för stackNavigering som standard
+        newToolGroup.setToolActive('StackScrollMouseWheelTool', {
+          bindings: [{ mouseButton: csToolsEnums.MouseBindings.Wheel }]
+        });
+        
+        // Aktivera standardverktyget (WindowLevel)
+        newToolGroup.setToolActive('WindowLevelTool', {
+          bindings: [{ mouseButton: csToolsEnums.MouseBindings.Primary }]
+        });
+        
+        setToolGroup(newToolGroup);
         console.log('Cornerstone initialized successfully');
         setLoading(false);
       } catch (error) {
@@ -172,7 +239,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
     }
   };
 
-  // Förenkla renderingsfunktionen
+  // Uppdatera renderSeries för att använda toolGroup
   const renderSeries = async (seriesId: string) => {
     try {
       if (!axialRef.current || !renderingEngine) {
@@ -203,8 +270,6 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
         type: Enums.ViewportType.STACK,
       };
       
-      // I Cornerstone3D kommer enableElement att ersätta en befintlig viewport 
-      // med samma ID om den redan finns, så vi behöver inte explicit ta bort den först
       renderingEngine.enableElement(viewportInput);
       
       // Hämta viewport och sätt stack
@@ -220,6 +285,11 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
           upper: 80
         }
       });
+      
+      // Lägg till viewport till toolGroup om det inte redan är gjort
+      if (toolGroup && !toolGroup.hasViewport(viewportId)) {
+        toolGroup.addViewport(viewportId);
+      }
       
       // Rendera viewport
       viewport.render();
@@ -237,11 +307,94 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
     loadStudies(patient.patient_id);
   };
 
-  const toggleMprView = () => {
-    setUseMprView(prev => !prev);
-    if (selectedSeriesId) {
-      renderSeries(selectedSeriesId);
+  const toggleMprView = async () => {
+    if (!selectedSeriesId || !renderingEngine || !axialRef.current) {
+      console.warn('Kan inte växla MPR-vy: Saknar serieId, renderingEngine eller ref');
+      return;
     }
+    
+    setLoading(true);
+    
+    try {
+      // Rensa nuvarande viewport först
+      renderingEngine.destroy();
+      
+      // Skapa ny renderingEngine - detta är korrekt enligt dokumentationen
+      // där renderingEngine hanteras i UI-komponenten
+      const engine = new RenderingEngine('myRenderingEngine');
+      setRenderingEngine(engine);
+      
+      const newMprState = !useMprView;
+      setUseMprView(newMprState);
+      
+      if (newMprState) {
+        // Växla till MPR-vy (VolumeViewport enligt Cornerstone-dokumentation)
+        // Ladda volymen först från servicen
+        const volume = await dicomService.loadVolumeForSeries(selectedSeriesId);
+        
+        // Skapa VolumeViewport enligt dokumentation
+        const viewportId = 'CT_MPR';
+        const viewportInput = {
+          viewportId,
+          element: axialRef.current,
+          type: Enums.ViewportType.ORTHOGRAPHIC,
+          defaultOptions: {
+            orientation: Enums.OrientationAxis.AXIAL,
+            background: [0, 0, 0],
+          },
+        };
+        
+        // Aktivera element
+        engine.enableElement(viewportInput);
+        
+        // Hämta viewport
+        const viewport = engine.getViewport(viewportId) as Types.IVolumeViewport;
+        
+        // Lägg till volymen till viewporten
+        await viewport.setVolumes([
+          { volumeId: volume.volumeId }
+        ]);
+        
+        // Ställ in window/level
+        viewport.setProperties({
+          voiRange: {
+            lower: 0,
+            upper: 80
+          }
+        });
+        
+        // Rendera viewport
+        viewport.render();
+      } else {
+        // Växla tillbaka till stack-vy
+        await renderSeries(selectedSeriesId);
+      }
+      
+      setLoading(false);
+    } catch (error) {
+      console.error('Fel vid växling av MPR-vy:', error);
+      setLoading(false);
+      setUseMprView(false); // Återställ state vid fel
+    }
+  };
+
+  // Funktion för att byta aktivt verktyg
+  const handleToolChange = (toolName: string, mouseButton: number) => {
+    if (!toolGroup) return;
+    
+    // Inaktivera alla verktyg först
+    toolButtons.forEach(button => {
+      if (button.toolName !== 'StackScrollMouseWheelTool') {
+        toolGroup.setToolPassive(button.toolName);
+      }
+    });
+    
+    // Aktivera valt verktyg
+    toolGroup.setToolActive(toolName, {
+      bindings: [{ mouseButton }]
+    });
+    
+    setActiveTool(toolName);
   };
 
   return (
@@ -298,11 +451,23 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
               {loading ? 'Loading...' : 'DICOM-image'}
             </ViewerLabel>
             <Canvas ref={axialRef} />
-            <Controls>
+            
+            {/* Toolbar för verktyg */}
+            <ToolbarContainer>
+              {toolButtons.map(button => (
+                <ToolButton
+                  key={button.name}
+                  isActive={activeTool === button.toolName}
+                  onClick={() => handleToolChange(button.toolName, button.mouseButton)}
+                  title={button.label}
+                >
+                  {button.icon}
+                </ToolButton>
+              ))}
               <button onClick={toggleMprView}>
                 {useMprView ? 'Show Stack' : 'Show MPR'} 
               </button>
-            </Controls>
+            </ToolbarContainer>
           </ViewerPanel>
         </ViewerGrid>
       </MainContainer>

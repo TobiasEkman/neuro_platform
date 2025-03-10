@@ -156,4 +156,25 @@ export const SeriesItem = styled.div<{ isSelected: boolean }>`
   &:hover {
     background: ${props => props.isSelected ? props.theme.colors.primary : props.theme.colors.background.hover};
   }
+`;
+
+export const ToolbarContainer = styled.div`
+  display: flex;
+  gap: 5px;
+  padding: 8px;
+  background-color: #f0f0f0;
+  border-top: 1px solid #ddd;
+`;
+
+export const ToolButton = styled.button<{ isActive: boolean }>`
+  padding: 8px;
+  border: 1px solid ${props => props.isActive ? '#1976d2' : '#ccc'};
+  background-color: ${props => props.isActive ? '#e3f2fd' : 'white'};
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  
+  &:hover {
+    background-color: ${props => props.isActive ? '#bbdefb' : '#f5f5f5'};
+  }
 `; 

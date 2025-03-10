@@ -18,7 +18,7 @@ const IMAGING_SERVICE_URL = process.env.IMAGING_SERVICE_URL || 'http://localhost
 
 logger.info(`Configured imaging service URL: ${IMAGING_SERVICE_URL}`);
 
-// Lägg till debug-logging för att se alla inkommande requests
+
 router.use((req, res, next) => {
   console.log('\x1b[35m%s\x1b[0m', '[Backend DICOM Route]', {
     method: req.method,
@@ -57,35 +57,7 @@ router.get('/series/:seriesId', async (req, res) => {
     }
 });
 
-router.get('/image', async (req, res) => {
-    try {
-        const { path } = req.query;
-        if (!path) {
-            throw new Error('No path provided');
-        }
 
-        const normalizedPath = decodeURIComponent(path as string).replace(/\\/g, '/');
-        console.log('[Backend DICOM] Image request:', {
-            path: normalizedPath,
-            type: 'JSON pixel data'  // Nu skickar vi JSON istället för binär data
-        });
-
-        const response = await axios.get(
-            `${IMAGING_SERVICE_URL}/api/dicom/image`,
-            {
-                params: { path: normalizedPath },
-                responseType: 'json'  // Ändra till json
-            }
-        );
-
-        // Skicka vidare JSON-response
-        res.json(response.data);
-        
-    } catch (err) {
-        console.error('[Backend DICOM] Error:', err);
-        handleServiceError(err, res);
-    }
-});
 
 
 router.post('/parse/folder', async (req: Request, res: Response) => {
@@ -124,16 +96,7 @@ router.post('/parse/folder', async (req: Request, res: Response) => {
 });
 
 
-router.get('/list', async (req, res) => {
-    try {
-        console.log('Fetching DICOM list');
-        const response = await axios.get(`${IMAGING_SERVICE_URL}/api/dicom/list`);
-        console.log('Flask response:', response.data);
-        res.json(response.data);
-    } catch (err) {
-        handleServiceError(err, res);
-    }
-});
+
 
 
 router.get('/search', async (req, res) => {

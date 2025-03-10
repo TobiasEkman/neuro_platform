@@ -4,18 +4,12 @@ from pymongo.errors import ServerSelectionTimeoutError
 from parsers.folder_parser import FolderParser
 from utils.mongo_utils import init_mongo_indexes
 import pydicom
-import numpy as np
 from flask_cors import CORS
 import os
-import requests
-from werkzeug.utils import secure_filename
 import logging
-import re
 import json
 from flask import Response
-from bson import json_util
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor
 
 # Set logging level to INFO
 logging.basicConfig(level=logging.INFO)
@@ -114,68 +108,6 @@ def parse_folder():
         return jsonify({'error': str(e)}), 500
 
 
-
-
-
-@app.route('/api/dicom/image', methods=['GET'])
-def get_dicom_image():
-    try:
-        image_path = request.args.get('path')
-        app.logger.info(f"\n[DICOM] Loading image: {image_path}")
-
-        if not os.path.exists(image_path):
-            app.logger.error(f"[DICOM] File not found: {image_path}")
-            return jsonify({"error": "File not found"}), 404
-
-        # Läs DICOM-filen med force=True
-        ds = pydicom.dcmread(image_path, force=True)
-        app.logger.info(f"\n[DICOM] File info:")
-        app.logger.info(f"  Transfer Syntax: {ds.file_meta.TransferSyntaxUID}")
-        app.logger.info(f"  SOP Class: {ds.SOPClassUID}")
-        app.logger.info(f"  Modality: {ds.Modality}")
-
-        # Kontrollera pixel data
-        if not hasattr(ds, 'PixelData'):
-            app.logger.error("[DICOM] No pixel data found!")
-            raise ValueError("No pixel data found in DICOM file")
-
-        # Extrahera pixel data
-        try:
-            pixel_array = ds.pixel_array
-            app.logger.info(f"\n[DICOM] Pixel data info:")
-            app.logger.info(f"  Shape: {pixel_array.shape}")
-            app.logger.info(f"  Type: {pixel_array.dtype}")
-            app.logger.info(f"  Range: {pixel_array.min()} to {pixel_array.max()}")
-            app.logger.info(f"  Mean value: {pixel_array.mean():.2f}")
-            app.logger.info(f"  Memory size: {pixel_array.nbytes / 1024:.2f} KB")
-
-        except Exception as e:
-            app.logger.error(f"[DICOM] Failed to get pixel array: {str(e)}")
-            raise ValueError(f"Failed to extract pixel data: {str(e)}")
-
-        # Skapa response
-        response = {
-            'rows': int(ds.Rows),
-            'columns': int(ds.Columns),
-            'windowCenter': float(getattr(ds, 'WindowCenter', [127])[0]),
-            'windowWidth': float(getattr(ds, 'WindowWidth', [255])[0]),
-            'bitsAllocated': int(ds.BitsAllocated),
-            'rescaleIntercept': float(getattr(ds, 'RescaleIntercept', 0)),
-            'rescaleSlope': float(getattr(ds, 'RescaleSlope', 1)),
-            'pixelData': pixel_array.tolist()
-        }
-
-        app.logger.info(f"\n[DICOM] Sending response:")
-        app.logger.info(f"  Image size: {response['rows']}x{response['columns']}")
-        app.logger.info(f"  Window: C={response['windowCenter']}, W={response['windowWidth']}")
-        app.logger.info(f"  Bits: {response['bitsAllocated']}")
-
-        return jsonify(response)
-
-    except Exception as e:
-        app.logger.error(f"[DICOM] Error: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-
 @app.route('/api/dicom/test', methods=['GET'])
 def test_connection():
     if db is None:
@@ -215,7 +147,7 @@ def health_check():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/dicom/series/<series_id>', methods=['GET'])
-def get_series_by_id(series_id):
+def get_series_by_series_id(series_id):
     try:
         # Hämta specifik serie
         series = db.series.find_one({'series_instance_uid': series_id})
@@ -226,7 +158,7 @@ def get_series_by_id(series_id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/dicom/series', methods=['GET'])
-def get_series_for_study():
+def get_series_by_study_id():
     try:
         study_id = request.args.get('studyId')
         if not study_id:
@@ -240,47 +172,8 @@ def get_series_for_study():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-
-@app.route('/api/dicom/list', methods=['GET'])
-def list_data():
-    try:
-        patients = list(db.patients.find({}, {'_id': 0}))
-        
-        # Log patient ID formats
-        for patient in patients:
-            logger.info('Imaging service patient ID check', {
-                'patient_id': patient.get('patient_id'),
-                'has_valid_pid_format': bool(re.match(r'^PID_\d{4}$', str(patient.get('patient_id'))))
-            })
-        
-        # Get studies for each patient
-        for patient in patients:
-            patient['studies'] = list(db.studies.find(
-                {'patient_id': patient['patient_id']}, 
-                {'_id': 0}
-            ))
-            
-            # Get series for each study
-            for study in patient['studies']:
-                study['series'] = list(db.series.find(
-                    {'study_instance_uid': study['study_instance_uid']},
-                    {'_id': 0}
-                ))
-
-        return jsonify({
-            'patients': patients,
-            'stats': {
-                'patients': len(patients),
-                'studies': db.studies.count_documents({}),
-                'series': db.series.count_documents({}),
-                'instances': db.instances.count_documents({})
-            }
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
 @app.route('/api/dicom/volume/<series_id>', methods=['GET'])
-def get_volume(series_id):
+def get_volume_by_series_id(series_id):
     try:
         series = db.series.find_one({'series_instance_uid': series_id})
         if not series:
@@ -328,7 +221,7 @@ def get_volume(series_id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/dicom/study/<study_id>', methods=['GET'])
-def get_study(study_id):
+def get_study_by_study_id(study_id):
     try:
         print(f"[Flask] Received request for study: {study_id}")
         
@@ -367,7 +260,7 @@ def get_study(study_id):
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/dicom/studies', methods=['GET'])
-def get_studies():
+def get_studies_by_patient_id():
     try:
         patient_id = request.args.get('patientId')
         logger.info(f"Received request for studies with patientId: {patient_id}")
@@ -441,50 +334,11 @@ def get_instance(sop_instance_uid):
         file_path = instance.get('file_path')
         if not file_path or not os.path.exists(file_path):
             return jsonify({'error': 'DICOM file not found'}), 404
-            
-        # Läs DICOM-filen
-        ds = pydicom.dcmread(file_path, force=True)
         
-        # Kontrollera om PixelData finns
-        if not hasattr(ds, 'PixelData'):
-            return jsonify({'error': 'No pixel data in DICOM file'}), 500
-            
-        # Extrahera pixel data
-        try:
-            pixel_array = ds.pixel_array
-        except Exception as e:
-            return jsonify({'error': f'Failed to read pixel data: {str(e)}'}), 500
-            
-        # Returnera pixel data och metadata i format som Cornerstone förväntar sig
-        response = {
-            'imageId': f"wadouri:{request.host_url.rstrip('/')}/api/dicom/instance/{sop_instance_uid}",
-            'sopInstanceUid': sop_instance_uid,
-            'rows': int(ds.Rows),
-            'columns': int(ds.Columns),
-            'windowCenter': float(ds.WindowCenter) if hasattr(ds, 'WindowCenter') else 127,
-            'windowWidth': float(ds.WindowWidth) if hasattr(ds, 'WindowWidth') else 255,
-            'sliceThickness': float(ds.SliceThickness) if hasattr(ds, 'SliceThickness') else 1,
-            'pixelSpacing': [
-                float(ds.PixelSpacing[0]) if hasattr(ds, 'PixelSpacing') else 1,
-                float(ds.PixelSpacing[1]) if hasattr(ds, 'PixelSpacing') else 1
-            ],
-            'photometricInterpretation': ds.PhotometricInterpretation if hasattr(ds, 'PhotometricInterpretation') else 'MONOCHROME2',
-            'invert': False,
-            'pixelData': pixel_array.tobytes(),
-            'minPixelValue': int(pixel_array.min()),
-            'maxPixelValue': int(pixel_array.max()),
-            'slope': float(ds.RescaleSlope) if hasattr(ds, 'RescaleSlope') else 1.0,
-            'intercept': float(ds.RescaleIntercept) if hasattr(ds, 'RescaleIntercept') else 0.0,
-            'color': False
-        }
-        
-        # Skapa en Response som är kompatibel med Cornerstone
         headers = {
             'Content-Type': 'application/dicom',
             'Content-Disposition': f'attachment; filename={sop_instance_uid}.dcm'
         }
-        
-        # Returnera hela DICOM filen istället för JSON
         return Response(open(file_path, 'rb').read(), headers=headers)
         
     except Exception as e:
