@@ -3,7 +3,7 @@ import mongoose, { Document, Schema } from 'mongoose';
 export interface IDicomMetadata extends Document {
   patientId: mongoose.Types.ObjectId;
   study_instance_uid: string;
-  series_instance_uid: string;
+  series_uid: string;
   sop_instance_uid?: string;
   modality: string;
   study_date?: Date;
@@ -23,7 +23,7 @@ const DicomMetadataSchema = new Schema<IDicomMetadata>({
     type: String, 
     required: true 
   },
-  series_instance_uid: { 
+  series_uid: { 
     type: String, 
     required: true 
   },
@@ -56,7 +56,7 @@ const DicomMetadataSchema = new Schema<IDicomMetadata>({
 
 // Create indexes for faster queries
 DicomMetadataSchema.index({ study_instance_uid: 1 });
-DicomMetadataSchema.index({ series_instance_uid: 1 });
+DicomMetadataSchema.index({ series_uid: 1 });
 DicomMetadataSchema.index({ patientId: 1 });
 
 export const DicomModel = mongoose.model<IDicomMetadata>('DicomMetadata', DicomMetadataSchema); 
