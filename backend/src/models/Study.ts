@@ -7,7 +7,7 @@ export interface IStudy extends Document {
   study_date: Date;
   study_description?: string;
   series: {
-    series_instance_uid: string;
+    series_uid: string;
     series_number?: number;
     series_description?: string;
     modality?: string;
@@ -21,7 +21,7 @@ const StudySchema = new mongoose.Schema<IStudy>({
   study_date: { type: Date, required: true },
   study_description: { type: String },
   series: [{
-    series_instance_uid: { type: String, required: true },
+    series_uid: { type: String, required: true },
     series_number: { type: Number },
     series_description: { type: String },
     modality: { type: String },

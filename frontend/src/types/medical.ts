@@ -93,12 +93,12 @@ export interface DicomInstance {
 }
 
 export interface DicomSeries {
-  series_instance_uid: string;
+  series_uid: string;
   series_number: string;
   description: string;
   modality: string;
   instances: DicomInstance[];
-  series_uid: string;  // Samma som series_instance_uid
+  series_uid: string;  // Samma som series_uid
   filePath: string;    // Sökväg till serien
 }
 

@@ -10,6 +10,9 @@ import logging
 import json
 from flask import Response
 from datetime import datetime
+from bson import ObjectId
+from bson.json_util import dumps, default
+from flask.json import JSONEncoder
 
 # Set logging level to INFO
 logging.basicConfig(level=logging.INFO)
@@ -36,6 +39,15 @@ except ServerSelectionTimeoutError as e:
     print(f"Failed to connect to MongoDB: {e}")
     db = None
 
+# Skapa en custom JSON encoder för MongoDB ObjectId
+class MongoJSONEncoder(JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, ObjectId):
+            return str(obj)
+        return super().default(obj)
+
+# Använd vår custom encoder
+app.json_encoder = MongoJSONEncoder
 
 # Print all registered routes at startup
 print("Registered Routes:")
@@ -150,7 +162,7 @@ def health_check():
 def get_series_by_series_id(series_id):
     try:
         # Hämta specifik serie
-        series = db.series.find_one({'series_instance_uid': series_id})
+        series = db.series.find_one({'series_uid': series_id})
         if not series:
             return jsonify({'error': 'Series not found'}), 404
         return jsonify(series)
@@ -175,12 +187,12 @@ def get_series_by_study_id():
 @app.route('/api/dicom/volume/<series_id>', methods=['GET'])
 def get_volume_by_series_id(series_id):
     try:
-        series = db.series.find_one({'series_instance_uid': series_id})
+        series = db.series.find_one({'series_uid': series_id})
         if not series:
             return jsonify({'error': 'Series not found'}), 404
               
         # Hämta alla instanser för denna serie
-        instances = list(db.instances.find({'series_instance_uid': series_id}).sort('instance_number', 1))
+        instances = list(db.instances.find({'series_uid': series_id}).sort('instance_number', 1))
         
         if not instances:
             return jsonify({'error': 'No instances found for series'}), 404
@@ -241,7 +253,8 @@ def get_study_by_study_id(study_id):
             'patient_id': study['patient_id'],
             'study_date': formatted_date,  # Använd det formaterade datumet
             'series': [{
-                'series_uid': series['series_uid'],
+                'series_uid': series.get('series_uid', series.get('series_uid')),  # Säkerställ att series_uid alltid finns
+                'series_uid': series.get('series_uid', series.get('series_uid')),  # Säkerställ att series_uid alltid finns
                 'series_number': series['series_number'],
                 'description': series['description'],
                 'modality': series['modality'],
@@ -263,62 +276,105 @@ def get_study_by_study_id(study_id):
 def get_studies_by_patient_id():
     try:
         patient_id = request.args.get('patientId')
-        logger.info(f"Received request for studies with patientId: {patient_id}")
-        
         query = {'patient_id': patient_id} if patient_id else {}
-        logger.info(f"Using MongoDB query: {query}")
         
         studies = list(db.studies.find(query))
-        logger.info(f"Found {len(studies)} studies matching query")
-        
-        # Visa första studien som exempel
-        if studies and len(studies) > 0:
-            logger.info(f"Example study fields: {list(studies[0].keys())}")
-            logger.info(f"Example study patient_id: {studies[0].get('patient_id', 'No patient_id field!')}")
-        
-        return jsonify(studies)
+        return Response(
+            dumps(studies),
+            mimetype='application/json'
+        )
     except Exception as e:
-        logger.error(f"Error in get_studies: {str(e)}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Error in get_studies: {str(e)}")
+        return jsonify([])
 
 @app.route('/api/dicom/imageIds', methods=['GET'])
 def get_image_ids():
     try:
         study_id = request.args.get('studyId')
         series_id = request.args.get('seriesId')
+        study_instance_uid = request.args.get('study_instance_uid')
+        series_uid = request.args.get('series_uid')
+        
+        logger.info(f"get_image_ids: studyId={study_id}, seriesId={series_id}, study_instance_uid={study_instance_uid}, series_uid={series_uid}")
+        
+        # Använd study_instance_uid om studyId inte finns
+        if not study_id and study_instance_uid:
+            study_id = study_instance_uid
+            
+        # Använd series_uid om seriesId inte finns
+        if not series_id and series_uid:
+            series_id = series_uid
         
         if not study_id and not series_id:
             return jsonify({'error': 'studyId eller seriesId krävs'}), 400
             
+        # Hitta studier som matchar kriterierna
         query = {}
         if study_id:
-            query['study_instance_uid'] = study_id
-        if series_id:
-            query['series_instance_uid'] = series_id
+            # Sök på både study_instance_uid och study_uid
+            query['$or'] = [
+                {'study_instance_uid': study_id},
+                {'study_uid': study_id}
+            ]
             
-        instances = list(db.instances.find(query, {'_id': 0}))
+        logger.info(f"get_image_ids: query={query}")
+        studies = list(db.studies.find(query, {'_id': 0}))
+        logger.info(f"get_image_ids: found {len(studies)} studies")
         
-        # Skapa imageIds för Cornerstone (wado-uri format)
-        base_url = request.host_url.rstrip('/')
         image_ids = []
         
-        for instance in instances:
-            image_path = instance.get('file_path', '').replace('\\', '/')
-            # Skapa en wadors:// imageId (Cornerstone DICOM Image Loader format)
-            image_id = f"wadouri:{base_url}/api/dicom/instance/{instance['sop_instance_uid']}"
+        # Basurl för wadouri
+        base_url = request.host_url.rstrip('/')
+        
+        # Gå igenom alla studier
+        for study in studies:
+            logger.info(f"get_image_ids: processing study {study.get('study_instance_uid', study.get('study_uid', 'unknown'))}")
             
-            image_ids.append({
-                'imageId': image_id,
-                'sopInstanceUid': instance['sop_instance_uid'],
-                'seriesInstanceUid': instance.get('series_instance_uid', ''),
-                'studyInstanceUid': instance.get('study_instance_uid', ''),
-                'instanceNumber': instance.get('instance_number', 0),
-                'filePath': image_path
-            })
-            
+            # Gå igenom alla serier i studien
+            for series in study.get('series', []):
+                logger.info(f"get_image_ids: processing series {series.get('series_uid', 'unknown')}")
+                
+                # Om series_id är specificerat, filtrera på det
+                if series_id and series.get('series_uid') != series_id:
+                    continue
+                    
+                # Gå igenom alla instanser i serien
+                instances = series.get('instances', [])
+                logger.info(f"get_image_ids: found {len(instances)} instances in series")
+                
+                for instance in instances:
+                    # Logga instanstyp
+                    logger.info(f"get_image_ids: instance type: {type(instance)}")
+                    
+                    # Konvertera instance till ett objekt om det är en sträng
+                    if isinstance(instance, str):
+                        # Parsa strängen till ett objekt
+                        instance_str = instance.strip('@{}')
+                        instance_parts = instance_str.split('; ')
+                        instance = {}
+                        for part in instance_parts:
+                            key, value = part.split('=', 1)
+                            instance[key] = value
+                    
+                    # Skapa image_id
+                    sop_instance_uid = instance.get('sop_instance_uid')
+                    if sop_instance_uid:
+                        image_path = instance.get('file_path', '').replace('\\', '/')
+                        image_id = f"wadouri:{base_url}/api/dicom/instance/{sop_instance_uid}"
+                        
+                        image_ids.append({
+                            'imageId': image_id,
+                            'sopInstanceUid': sop_instance_uid,
+                            'seriesInstanceUid': series.get('series_uid', ''),
+                            'studyInstanceUid': study.get('study_instance_uid', study.get('study_uid', '')),
+                            'instanceNumber': int(instance.get('instance_number', 0)),
+                            'filePath': image_path
+                        })
+        
         # Sortera efter instanceNumber
         image_ids.sort(key=lambda x: x['instanceNumber'])
         
+        logger.info(f"get_image_ids: returning {len(image_ids)} image IDs")
         return jsonify(image_ids)
     except Exception as e:
         logger.error(f"Error getting image IDs: {str(e)}")
@@ -327,57 +383,102 @@ def get_image_ids():
 @app.route('/api/dicom/instance/<sop_instance_uid>', methods=['GET'])
 def get_instance(sop_instance_uid):
     try:
-        instance = db.instances.find_one({'sop_instance_uid': sop_instance_uid})
-        if not instance:
-            return jsonify({'error': 'Instance not found'}), 404
-            
-        file_path = instance.get('file_path')
-        if not file_path or not os.path.exists(file_path):
-            return jsonify({'error': 'DICOM file not found'}), 404
+        # Sök genom alla studier för att hitta instansen
+        for study in db.studies.find({}, {'_id': 0}):
+            for series in study.get('series', []):
+                for instance in series.get('instances', []):
+                    # Konvertera instance till ett objekt om det är en sträng
+                    if isinstance(instance, str):
+                        instance_str = instance.strip('@{}')
+                        instance_parts = instance_str.split('; ')
+                        instance_obj = {}
+                        for part in instance_parts:
+                            key, value = part.split('=', 1)
+                            instance_obj[key] = value
+                        
+                        if instance_obj.get('sop_instance_uid') == sop_instance_uid:
+                            file_path = instance_obj.get('file_path')
+                            if file_path and os.path.exists(file_path):
+                                headers = {
+                                    'Content-Type': 'application/dicom',
+                                    'Content-Disposition': f'attachment; filename={sop_instance_uid}.dcm'
+                                }
+                                return Response(open(file_path, 'rb').read(), headers=headers)
+                    else:
+                        # Om instance är ett objekt
+                        if instance.get('sop_instance_uid') == sop_instance_uid:
+                            file_path = instance.get('file_path')
+                            if file_path and os.path.exists(file_path):
+                                headers = {
+                                    'Content-Type': 'application/dicom',
+                                    'Content-Disposition': f'attachment; filename={sop_instance_uid}.dcm'
+                                }
+                                return Response(open(file_path, 'rb').read(), headers=headers)
         
-        headers = {
-            'Content-Type': 'application/dicom',
-            'Content-Disposition': f'attachment; filename={sop_instance_uid}.dcm'
-        }
-        return Response(open(file_path, 'rb').read(), headers=headers)
-        
+        # Om vi kommer hit har vi inte hittat instansen
+        return jsonify({'error': f'Instance with SOP UID {sop_instance_uid} not found'}), 404
     except Exception as e:
         logger.error(f"Error getting instance: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/dicom/metadata/<sop_instance_uid>', methods=['GET'])
-def get_instance_metadata(sop_instance_uid):
+def get_metadata(sop_instance_uid):
     try:
-        instance = db.instances.find_one({'sop_instance_uid': sop_instance_uid})
-        if not instance:
-            return jsonify({'error': 'Instance not found'}), 404
-            
-        file_path = instance.get('file_path')
-        if not file_path or not os.path.exists(file_path):
-            return jsonify({'error': 'DICOM file not found'}), 404
-            
-        # Läs DICOM-filen för metadata
-        ds = pydicom.dcmread(file_path, force=True, stop_before_pixels=True)
+        # Sök genom alla studier för att hitta instansen
+        for study in db.studies.find({}, {'_id': 0}):
+            for series in study.get('series', []):
+                for instance in series.get('instances', []):
+                    # Konvertera instance till ett objekt om det är en sträng
+                    if isinstance(instance, str):
+                        instance_str = instance.strip('@{}')
+                        instance_parts = instance_str.split('; ')
+                        instance_obj = {}
+                        for part in instance_parts:
+                            key, value = part.split('=', 1)
+                            instance_obj[key] = value
+                        
+                        if instance_obj.get('sop_instance_uid') == sop_instance_uid:
+                            # Här skulle vi hämta metadata från DICOM-filen
+                            file_path = instance_obj.get('file_path')
+                            if file_path and os.path.exists(file_path):
+                                # Läs DICOM-filen och returnera metadata
+                                ds = pydicom.dcmread(file_path)
+                                metadata = {
+                                    'studyInstanceUid': study.get('study_instance_uid'),
+                                    'seriesInstanceUid': series.get('series_uid'),
+                                    'sopInstanceUid': sop_instance_uid,
+                                    'rows': ds.Rows if hasattr(ds, 'Rows') else None,
+                                    'columns': ds.Columns if hasattr(ds, 'Columns') else None,
+                                    'pixelSpacing': ds.PixelSpacing if hasattr(ds, 'PixelSpacing') else None,
+                                    'sliceThickness': ds.SliceThickness if hasattr(ds, 'SliceThickness') else None,
+                                    'sliceLocation': ds.SliceLocation if hasattr(ds, 'SliceLocation') else None,
+                                    'instanceNumber': ds.InstanceNumber if hasattr(ds, 'InstanceNumber') else None,
+                                    # Lägg till fler metadata-fält efter behov
+                                }
+                                return jsonify(metadata)
+                    else:
+                        # Om instance är ett objekt
+                        if instance.get('sop_instance_uid') == sop_instance_uid:
+                            file_path = instance.get('file_path')
+                            if file_path and os.path.exists(file_path):
+                                # Läs DICOM-filen och returnera metadata
+                                ds = pydicom.dcmread(file_path)
+                                metadata = {
+                                    'studyInstanceUid': study.get('study_instance_uid'),
+                                    'seriesInstanceUid': series.get('series_uid'),
+                                    'sopInstanceUid': sop_instance_uid,
+                                    'rows': ds.Rows if hasattr(ds, 'Rows') else None,
+                                    'columns': ds.Columns if hasattr(ds, 'Columns') else None,
+                                    'pixelSpacing': ds.PixelSpacing if hasattr(ds, 'PixelSpacing') else None,
+                                    'sliceThickness': ds.SliceThickness if hasattr(ds, 'SliceThickness') else None,
+                                    'sliceLocation': ds.SliceLocation if hasattr(ds, 'SliceLocation') else None,
+                                    'instanceNumber': ds.InstanceNumber if hasattr(ds, 'InstanceNumber') else None,
+                                    # Lägg till fler metadata-fält efter behov
+                                }
+                                return jsonify(metadata)
         
-        # Extrahera relevant metadata för Cornerstone
-        metadata = {
-            'sopInstanceUid': sop_instance_uid,
-            'seriesInstanceUid': ds.SeriesInstanceUID if hasattr(ds, 'SeriesInstanceUID') else '',
-            'studyInstanceUid': ds.StudyInstanceUID if hasattr(ds, 'StudyInstanceUID') else '',
-            'rows': int(ds.Rows) if hasattr(ds, 'Rows') else 0,
-            'columns': int(ds.Columns) if hasattr(ds, 'Columns') else 0,
-            'instanceNumber': int(ds.InstanceNumber) if hasattr(ds, 'InstanceNumber') else 0,
-            'sliceLocation': float(ds.SliceLocation) if hasattr(ds, 'SliceLocation') else 0,
-            'sliceThickness': float(ds.SliceThickness) if hasattr(ds, 'SliceThickness') else 0,
-            'pixelSpacing': list(map(float, ds.PixelSpacing)) if hasattr(ds, 'PixelSpacing') else [1, 1],
-            'windowCenter': float(ds.WindowCenter[0] if isinstance(ds.WindowCenter, pydicom.multival.MultiValue) else ds.WindowCenter) if hasattr(ds, 'WindowCenter') else 127,
-            'windowWidth': float(ds.WindowWidth[0] if isinstance(ds.WindowWidth, pydicom.multival.MultiValue) else ds.WindowWidth) if hasattr(ds, 'WindowWidth') else 255,
-            'rescaleIntercept': float(ds.RescaleIntercept) if hasattr(ds, 'RescaleIntercept') else 0,
-            'rescaleSlope': float(ds.RescaleSlope) if hasattr(ds, 'RescaleSlope') else 1,
-        }
-        
-        return jsonify(metadata)
-        
+        # Om vi kommer hit har vi inte hittat instansen
+        return jsonify({'error': f'Instance with SOP UID {sop_instance_uid} not found'}), 404
     except Exception as e:
         logger.error(f"Error getting metadata: {str(e)}")
         return jsonify({'error': str(e)}), 500

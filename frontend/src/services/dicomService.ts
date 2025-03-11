@@ -29,39 +29,6 @@ type CharlsCodec = {
   setConfig?: (config: { wasmPath: string }) => void 
 };
 
-// Ta bort den befintliga modulutökningen för dicom-image-loader
-// declare module '@cornerstonejs/dicom-image-loader' { ... }
-
-const convertStudy = (study: DicomStudy): DicomStudy => {
-  if (!study) {
-    console.error('Received undefined study in convertStudy');
-    return {
-      study_instance_uid: '',
-      study_date: '',
-      description: 'Invalid Study',
-      series: [],
-      _id: '',
-      patient_id: '',
-      modalities: [],
-      num_series: 0,
-      num_instances: 0
-    };
-  }
-
-  return {
-    ...study,
-    _id: study.study_instance_uid,
-    modalities: study.modality ? [study.modality] : [],
-    num_series: study.series?.length || 0,
-    num_instances: study.series?.reduce((sum, s) => sum + (s.instances?.length || 0), 0) || 0,
-    series: study.series?.map(s => ({
-      ...s,
-      series_uid: s.series_instance_uid,
-      filePath: s.instances?.[0]?.file_path || ''
-    })) || []
-  };
-};
-
 
 export interface DicomMetadata {
   patientId: string;
@@ -74,20 +41,6 @@ export interface DicomMetadata {
   seriesDescription?: string;
   filePath: string;
   metadata?: Record<string, any>;
-}
-
-
-interface IImageLoadObject {
-  image: any;
-  imageId: string;
-}
-
-interface VolumeOptions {
-  imageIds: string[];
-  dimensions?: number[];
-  spacing?: number[];
-  orientation?: number[];
-  voxelData?: any;
 }
 
 interface CustomLoaderOptions {
@@ -168,16 +121,8 @@ export class DicomService {
   async searchStudies(query: string): Promise<SearchResult[]> {
     try {
       const response = await axios.get(`${this.baseUrl}/search?q=${encodeURIComponent(query)}`);
-      // Konvertera sökresultat till rätt format om det är en studie
-      return response.data.map((result: SearchResult) => {
-        if (result.type === 'study' && result.studyData) {
-          return {
-            ...result,
-            studyData: convertStudy(result.studyData)
-          };
-        }
-        return result;
-      });
+      // Returnera data direkt utan konvertering
+      return response.data;
     } catch (error) {
       throw this.handleError(error, 'Failed to search studies');
     }
@@ -218,7 +163,7 @@ export class DicomService {
   // Get patients with DICOM studies
   async getPatients(options: { withDicom?: boolean } = {}) {
     try {
-      // Hämta alla studies
+      
       const response = await axios.get(`${this.baseUrl}/studies`);
       const studies = response.data;
 
@@ -296,12 +241,12 @@ export class DicomService {
         params: { studyId }
       });
       return response.data.map((series: any) => ({
-        id: series.series_instance_uid,
+        id: series.series_uid,
         description: series.description || 'Untitled Series',
         modality: series.modality,
         numImages: series.number_of_images,
         studyInstanceUID: series.study_instance_uid,
-        seriesInstanceUID: series.series_instance_uid,
+        seriesInstanceUID: series.series_uid,
         metadata: series.metadata
       }));
     } catch (error) {
@@ -309,31 +254,32 @@ export class DicomService {
     }
   }
 
+  // Get studies for a patient
   async getStudiesForPatient(patientId: string): Promise<DicomStudy[]> {
     try {
       const response = await axios.get(`${this.baseUrl}/studies`, {
         params: { patientId }
       });
 
-      // Validera och konvertera data
+      // Validera data men returnera utan konvertering
       if (!response.data || !Array.isArray(response.data)) {
         console.error('Invalid response data:', response.data);
         return [];
       }
 
       return response.data
-        .filter(study => study && typeof study === 'object')
-        .map(study => convertStudy(study));
+        .filter(study => study && typeof study === 'object');
     } catch (error) {
       console.error('Failed to fetch studies:', error);
       throw this.handleError(error, 'Failed to fetch studies');
     }
   }
 
+  // Get a single study
   async getStudy(studyId: string): Promise<DicomStudy> {
     try {
       const response = await axios.get(`${this.baseUrl}/study/${studyId}`);
-      return convertStudy(response.data);
+      return response.data;
     } catch (error) {
       throw this.handleError(error, 'Failed to fetch study');
     }
@@ -529,20 +475,28 @@ export class DicomService {
 
   // Uppdaterad initialize-metod för att inkludera DICOM Image Loader
   async initialize() {
+    console.log("[DicomService] Starting initialization...");
+    
     // Initiera Cornerstone3D
+    console.log("[DicomService] Initializing Cornerstone3D...");
     await cornerstone.init();
+    
+    console.log("[DicomService] Initializing tools...");
     await toolsInit();
     
     // Registrera verktyg globalt
+    console.log("[DicomService] Registering tools...");
     this.registerTools();
     
     // Initiera DICOM Image Loader
+    console.log("[DicomService] Initializing DICOM Image Loader...");
     await this.initializeDICOMImageLoader();
     
     // Registrera metadata provider
+    console.log("[DicomService] Registering metadata provider...");
     this.registerMetadataProvider();
     
-    console.log('[DicomService] Cornerstone, verktyg och DICOM Image Loader initialiserade');
+    console.log('[DicomService] Initialization complete');
   }
 
   // Ny metod för att registrera verktyg globalt

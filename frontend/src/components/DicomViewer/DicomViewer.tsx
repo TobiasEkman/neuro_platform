@@ -8,7 +8,6 @@ import {
   ViewerGrid,
   ViewerPanel,
   Canvas,
-  Controls,
   ViewerLabel,
   MainContainer,
   SidePanel,
@@ -111,9 +110,12 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
   useEffect(() => {
     if (initialSeriesId && initialSeriesId !== selectedSeriesId) {
       setSelectedSeriesId(initialSeriesId);
-      handleSeriesSelect(initialSeriesId);
+      // Vänta med att anropa handleSeriesSelect tills renderingEngine är tillgänglig
+      if (renderingEngine) {
+        handleSeriesSelect(initialSeriesId);
+      }
     }
-  }, [initialSeriesId]);
+  }, [initialSeriesId, renderingEngine]); // Lägg till renderingEngine som dependency
 
   // Hantera studyId från URL om det finns
   useEffect(() => {
@@ -125,21 +127,30 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
 
   // Initiera Cornerstone och verktyg
   useEffect(() => {
+    let engineInstance: RenderingEngine | null = null;
+
     const initCornerstone = async () => {
       try {
+        console.log("Starting Cornerstone initialization...");
         setLoading(true);
-        // Initiera DicomService (som nu inkluderar Cornerstone och DICOM Image Loader)
+        
+        // Initiera DicomService
+        console.log("Initializing DicomService...");
         await dicomService.initialize();
         
         // Skapa rendering engine
-        const engine = new RenderingEngine('myRenderingEngine');
-        setRenderingEngine(engine);
+        console.log("Creating RenderingEngine...");
+        engineInstance = new RenderingEngine('myRenderingEngine');
+        console.log("RenderingEngine created:", engineInstance);
+        setRenderingEngine(engineInstance);
         
         // Skapa och konfigurera toolGroup
+        console.log("Creating ToolGroup...");
         const toolGroupId = 'myToolGroup';
         const newToolGroup = ToolGroupManager.createToolGroup(toolGroupId);
         
         // Lägg till alla registrerade verktyg till toolGroup
+        console.log("Adding tools to ToolGroup...");
         newToolGroup.addTool('PanTool');
         newToolGroup.addTool('ZoomTool');
         newToolGroup.addTool('WindowLevelTool');
@@ -157,23 +168,32 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
         
         setToolGroup(newToolGroup);
         console.log('Cornerstone initialized successfully');
-        setLoading(false);
+
+        // Om vi har en initial series, rendera den nu när allt är initierat
+        if (selectedSeriesId) {
+          console.log("Initial series detected, rendering...");
+          await renderSeries(selectedSeriesId, engineInstance);
+        }
+
       } catch (error) {
-        console.error('Error initializing Cornerstone:', error);
+        console.error('Error during Cornerstone initialization:', error);
         setLoading(false);
       }
     };
     
+    console.log("Calling initCornerstone...");
     initCornerstone();
     
     return () => {
-      // Cleanup
-      if (renderingEngine) {
-        renderingEngine.destroy();
+      console.log("Cleaning up Cornerstone...");
+      if (engineInstance) {
+        console.log("Destroying renderingEngine...");
+        engineInstance.destroy();
       }
+      console.log("Purging Cornerstone cache...");
       cornerstoneCache.purgeCache();
     };
-  }, []);
+  }, [selectedSeriesId]); // Lägg till selectedSeriesId som dependency
 
   const loadPatients = async () => {
     try {
@@ -213,7 +233,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
       
       // Om vi har serier och inget är valt, välj den första
       if (study.series && study.series.length > 0 && !selectedSeriesId) {
-        const firstSeriesId = study.series[0].series_instance_uid;
+        const firstSeriesId = study.series[0].series_uid;
         setSelectedSeriesId(firstSeriesId);
         handleSeriesSelect(firstSeriesId);
       }
@@ -226,27 +246,39 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
     try {
       setSelectedSeriesId(seriesId);
       
-      // Meddela TumorAnalysis om vald serie
-      if (onSeriesSelect) {
-        onSeriesSelect(seriesId);
-      }
-
       // Ladda och visa serien med Cornerstone3D
-      await renderSeries(seriesId);
+      if (renderingEngine) {
+        await renderSeries(seriesId);
+      } else {
+        console.log("Waiting for rendering engine to be available...");
+      }
     } catch (error) {
       console.error('Failed to load series:', error);
       setSelectedSeriesId(null);
     }
   };
 
-  // Uppdatera renderSeries för att använda toolGroup
-  const renderSeries = async (seriesId: string) => {
+  // Uppdatera renderSeries för att ta emot renderingEngine som parameter
+  const renderSeries = async (seriesId: string, engine?: RenderingEngine | null) => {
+    console.log("renderSeries called with seriesId:", seriesId);
+    const currentEngine = engine || renderingEngine;
+    console.log("Using engine:", currentEngine);
+    
     try {
-      if (!axialRef.current || !renderingEngine) {
-        console.error('Viewport element or rendering engine not available');
+      console.log("Entering try block");
+      
+      if (!axialRef.current) {
+        console.log("axialRef.current is null or undefined");
         return;
       }
-      
+
+      if (!currentEngine) {
+        console.log("No rendering engine available");
+        return;
+      }
+
+      console.log("Passed all checks - axialRef and renderingEngine are available");
+      console.log("seriesId: ", seriesId);
       setLoading(true);
       
       // Hämta bilderna för serien
@@ -270,10 +302,10 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
         type: Enums.ViewportType.STACK,
       };
       
-      renderingEngine.enableElement(viewportInput);
+      currentEngine.enableElement(viewportInput);
       
       // Hämta viewport och sätt stack
-      const viewport = renderingEngine.getViewport(viewportId) as Types.IStackViewport;
+      const viewport = currentEngine.getViewport(viewportId) as Types.IStackViewport;
       
       await viewport.setStack(imageIds);
       
@@ -432,16 +464,19 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
           
           <ListContainer>
             <ListTitle>Series</ListTitle>
-            {series.map((series) => (
-              <SeriesItem
-                key={series.series_instance_uid}
-                isSelected={series.series_instance_uid === selectedSeriesId}
-                onClick={() => handleSeriesSelect(series.series_instance_uid)}
-              >
-                <div>Series {series.series_number}</div>
-                <div>{series.description || 'No description'}</div>
-              </SeriesItem>
-            ))}
+            {series.map((series) => {
+              
+              return (
+                <SeriesItem
+                  key={series.series_uid}
+                  isSelected={series.series_uid === selectedSeriesId}
+                  onClick={() => handleSeriesSelect(series.series_uid)}
+                >
+                  <div>Series {series.series_number}</div>
+                  <div>{series.description || 'No description'}</div>
+                </SeriesItem>
+              );
+            })}
           </ListContainer>
         </SidePanel>
 

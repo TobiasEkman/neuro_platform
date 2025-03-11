@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { DicomList } from './DicomList';
 import { 
   DicomStudy, 
   DicomImportResult
@@ -184,7 +183,7 @@ const DicomManager: React.FC<DicomManagerProps> = ({
     localStorage.getItem('lastDicomPath') || ''
   );
   
-  // Lägg till state för bekräftelsedialog
+  // State för bekräftelsedialog
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [patientsToConfirm, setPatientsToConfirm] = useState<PatientConfirmation[]>([]);
   const [pendingDirectoryPath, setPendingDirectoryPath] = useState<string>('');
@@ -196,16 +195,16 @@ const DicomManager: React.FC<DicomManagerProps> = ({
       try {
         if (patientId) {
           const results = await dicomService.searchStudies(`patient:${patientId}`);
-          // Konvertera sökresultat till DicomStudy[]
+          // Filtrera sökresultat för att få endast studier
           const studyResults = results
             .filter(result => result.type === 'study' && result.studyData)
-            .map(result => convertStudy(result.studyData as DicomStudy));
+            .map(result => result.studyData as DicomStudy);
           setStudies(studyResults);
         } else {
           const results = await dicomService.searchStudies('');
           const studyResults = results
             .filter(result => result.type === 'study' && result.studyData)
-            .map(result => convertStudy(result.studyData as DicomStudy));
+            .map(result => result.studyData as DicomStudy);
           setStudies(studyResults);
         }
       } catch (error) {
@@ -225,7 +224,6 @@ const DicomManager: React.FC<DicomManagerProps> = ({
       
       console.log('[DicomManager] Parsing directory:', selectedPath);
       
-
       const result = await dicomService.parseDirectory(
         selectedPath,
         (progress) => {
@@ -292,7 +290,7 @@ const DicomManager: React.FC<DicomManagerProps> = ({
       );
       const studyResults = results
         .filter(result => result.type === 'study' && result.studyData)
-        .map(result => convertStudy(result.studyData as DicomStudy));
+        .map(result => result.studyData as DicomStudy);
       setStudies(studyResults);
 
       if (onUploadComplete) {
@@ -317,27 +315,6 @@ const DicomManager: React.FC<DicomManagerProps> = ({
     setShowConfirmation(false);
     setPendingDirectoryPath('');
     setPendingDicomData(null);
-  };
-
-  const handleStudySelect = useCallback((study: DicomStudy) => {
-    setSelectedStudyId(study.study_instance_uid);
-  }, []);
-
-
-
-  const convertStudy = (study: DicomStudy): DicomStudy => {
-    return {
-      ...study,
-      _id: study.study_instance_uid,
-      modalities: study.modality ? [study.modality] : [],
-      num_series: study.series.length,
-      num_instances: study.series.reduce((sum, s) => sum + s.instances.length, 0),
-      series: study.series.map(s => ({
-        ...s,
-        series_uid: s.series_instance_uid,  // Mappa series_instance_uid till series_uid
-        filePath: s.instances[0]?.file_path || ''  // Använd första instansens sökväg
-      }))
-    };
   };
 
   return (
@@ -366,8 +343,6 @@ const DicomManager: React.FC<DicomManagerProps> = ({
           />
         )}
       </UploadSection>
-      
-
       
       {/* Bekräftelsedialog */}
       {showConfirmation && (

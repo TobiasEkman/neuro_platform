@@ -136,7 +136,7 @@ router.post('/metadata', async (req: Request, res: Response) => {
         const dicomMetadata = await DicomModel.create({
             patientId: patientUpdate._id,
             study_instance_uid: dicom.study_instance_uid,
-            series_instance_uid: dicom.series_instance_uid,
+            series_uid: dicom.series_uid,
             modality: dicom.modality,
             study_date: dicom.study_date,
             series_description: dicom.series_description,
@@ -171,28 +171,6 @@ router.get('/health', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('[Backend] Health check failed:', err);
     res.status(500).json({ error: 'Failed to connect to imaging service' });
-  }
-});
-
-// Debug endpoint
-router.get('/debug', async (req: Request, res: Response) => {
-  try {
-    const response = await axios.get(`${IMAGING_SERVICE_URL}/api/dicom/debug`, {
-      params: req.query
-    });
-    res.json(response.data);
-  } catch (err) {
-    handleServiceError(err, res);
-  }
-});
-
-// Test endpoint
-router.get('/test', async (req: Request, res: Response) => {
-  try {
-    const response = await axios.get(`${IMAGING_SERVICE_URL}/test`);
-    res.json(response.data);
-  } catch (err) {
-    handleServiceError(err, res);
   }
 });
 

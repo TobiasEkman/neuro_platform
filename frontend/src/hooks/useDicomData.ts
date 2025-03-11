@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import dicomService from '../services/dicomService';
-import { DicomStudy, SearchResult } from '../types/medical';
+import { DicomStudy} from '../types/medical';
 
 export const useDicomData = (patientId?: string) => {
     const [studies, setStudies] = useState<DicomStudy[]>([]);
@@ -14,10 +14,10 @@ export const useDicomData = (patientId?: string) => {
                 const query = patientId ? `patient:${patientId}` : '';
                 const results = await dicomService.searchStudies(query);
                 
-                // Konvertera sökresultat till DicomStudy[]
+                // Filtrera sökresultat för att få endast studier
                 const studyResults = results
                     .filter(result => result.type === 'study' && result.studyData)
-                    .map(result => convertStudy(result.studyData as DicomStudy));
+                    .map(result => result.studyData as DicomStudy);
                 
                 setStudies(studyResults);
             } catch (err) {
@@ -33,7 +33,7 @@ export const useDicomData = (patientId?: string) => {
     return { studies, loading, error };
 };
 
-const convertStudy = (study: DicomStudy): DicomStudy => {
+const udytoDicomStudy = (study: DicomStudy): DicomStudy => {
     return {
         ...study,
         _id: study.study_instance_uid,
@@ -42,7 +42,7 @@ const convertStudy = (study: DicomStudy): DicomStudy => {
         num_instances: study.series.reduce((sum, s) => sum + s.instances.length, 0),
         series: study.series.map(s => ({
             ...s,
-            series_uid: s.series_instance_uid,
+            series_uid: s.series_uid,
             filePath: s.instances[0]?.file_path || ''
         }))
     };

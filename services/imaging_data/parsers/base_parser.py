@@ -1,5 +1,4 @@
 import os
-import pydicom
 import logging
 from utils.dicom_config import DicomConfig
 from utils.mongo_utils import get_or_create_document
@@ -88,7 +87,7 @@ class BaseParser:
     def _get_or_create_series(self, dataset, study_instance_uid):
         """Create or update series document"""
         series_data = {
-            'series_instance_uid': self._get_tag_value(dataset, self.config.get_tag('series', 'uid')),
+            'series_uid': self._get_tag_value(dataset, self.config.get_tag('series', 'uid')),
             'study_instance_uid': study_instance_uid,
             'series_number': self._get_tag_value(dataset, self.config.get_tag('series', 'number')),
             'series_description': self._get_tag_value(dataset, self.config.get_tag('series', 'description')),
@@ -107,7 +106,7 @@ class BaseParser:
 
         series_doc = get_or_create_document(
             self.db.series,
-            {'series_instance_uid': series_data['series_instance_uid']},
+            {'series_uid': series_data['series_uid']},
             series_data
         )
         logger.debug(f"[_get_or_create_series] Series document returned: {series_doc}")
@@ -138,7 +137,7 @@ class BaseParser:
             logger.error(f"Error converting path {full_path}: {str(e)}")
             return full_path
 
-    def _get_or_create_instance(self, dataset, series_instance_uid, file_path):
+    def _get_or_create_instance(self, dataset, series_uid, file_path):
         """Create or update instance document with both paths"""
         try:
             # Store both absolute and relative paths
@@ -150,7 +149,7 @@ class BaseParser:
 
             instance_data = {
                 'sop_instance_uid': self._get_tag_value(dataset, self.config.get_tag('instance', 'uid')),
-                'series_instance_uid': series_instance_uid,
+                'series_uid': series_uid,
                 'instance_number': int(self._get_tag_value(dataset, self.config.get_tag('instance', 'number')) or 0),
                 'file_path': absolute_path,  # Store absolute path
                 'relative_path': relative_path,  # Store relative path

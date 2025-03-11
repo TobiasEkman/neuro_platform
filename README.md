@@ -4,7 +4,6 @@
 To do:
 https://github.com/cornerstonejs/cornerstone3D/tree/main/packages/ai
 - Gå igenom varje funktion från flask till frontend
-- Fixa cornerston3D, kanske ta bort hela dicom viewer
 - Uppdatera @imaging_data att skicka rätt data
 - Currently working on implementing cornerstone3D in the dicom viewer
 - Improve tumor analysis service
