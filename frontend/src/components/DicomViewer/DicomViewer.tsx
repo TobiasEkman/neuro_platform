@@ -73,10 +73,7 @@ interface DicomViewerProps {
 }
 
 const DicomViewer: React.FC<DicomViewerProps> = ({
-  seriesId: initialSeriesId,
-  segmentationMask,
-  showSegmentation,
-  onSeriesSelect
+  seriesId: initialSeriesId
 }) => {
   // Hämta studyId från URL-parametrar om det finns
   const { studyId } = useParams<{ studyId?: string }>();
@@ -154,10 +151,10 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
         newToolGroup.addTool('PanTool');
         newToolGroup.addTool('ZoomTool');
         newToolGroup.addTool('WindowLevelTool');
-        newToolGroup.addTool('StackScrollMouseWheelTool');
+        newToolGroup.addTool('StackScrollTool');
         
         // Aktivera scrollhjulet för stackNavigering som standard
-        newToolGroup.setToolActive('StackScrollMouseWheelTool', {
+        newToolGroup.setToolActive('StackScrollTool', {
           bindings: [{ mouseButton: csToolsEnums.MouseBindings.Wheel }]
         });
         
@@ -416,7 +413,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
     
     // Inaktivera alla verktyg först
     toolButtons.forEach(button => {
-      if (button.toolName !== 'StackScrollMouseWheelTool') {
+      if (button.toolName !== 'StackScrollTool') {
         toolGroup.setToolPassive(button.toolName);
       }
     });

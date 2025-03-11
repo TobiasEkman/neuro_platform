@@ -22,14 +22,6 @@ const ZoomTool = (csTools as any).ZoomTool;
 const PanTool = (csTools as any).PanTool;
 const WindowLevelTool = (csTools as any).WindowLevelTool;
 
-
-
-// Lägg till typdeklaration för Charls-codec 
-type CharlsCodec = { 
-  setConfig?: (config: { wasmPath: string }) => void 
-};
-
-
 export interface DicomMetadata {
   patientId: string;
   studyInstanceUID: string;
@@ -56,6 +48,17 @@ interface CustomLoaderOptions {
 // Deklarera eget interface för initfunktionen
 declare module '@cornerstonejs/dicom-image-loader' {
   export function init(options: CustomLoaderOptions): void;
+}
+
+// Definiera interface för loader options
+interface DicomImageLoaderOptions {
+  maxWebWorkers: number;
+  webWorkerPath: string;
+  taskConfiguration?: {
+    decodeTask: {
+      codecsPath?: string;
+    };
+  };
 }
 
 export class DicomService {
@@ -381,70 +384,35 @@ export class DicomService {
   // Uppdatera anropet till this.registerCornerstoneWorker()
   async initializeDICOMImageLoader(): Promise<void> {
     try {
-      // Kontrollera att WebWorker-filer finns tillgängliga
-      const filesToCheck = [
-        '/cornerstoneWADOImageLoaderWebWorker.min.js',
-        '/cornerstoneWADOImageLoaderCodecs.min.js',
-        '/charlswasm_decode.wasm'
-      ];
+      const loader = cornerstoneDICOMImageLoader;
       
-      for (const file of filesToCheck) {
-        try {
-          const response = await fetch(file, { method: 'HEAD' });
-          if (!response.ok) {
-            console.warn(`[DicomService] Fil saknas eller otillgänglig: ${file}`);
-          }
-        } catch (error) {
-          console.warn(`[DicomService] Kunde inte kontrollera fil: ${file}`, error);
-        }
-      }
-      
-      const loader = cornerstoneDICOMImageLoader as any;
-      
-      // Importera codec-charls med dynamisk import och typdefinition
-      try {
-        // Lägg till explicit typtvång direkt vid importen för att tysta TypeScript
-        const charlsModule = await import('@cornerstonejs/codec-charls' as any);
-        const charlsCodec = charlsModule as unknown as CharlsCodec;
-        
-        if (charlsCodec.setConfig) {
-          charlsCodec.setConfig({
-            wasmPath: '/charlswasm_decode.wasm',
-          });
-          console.log('[DicomService] Charls codec konfigurerad');
-        } else {
-          console.warn('[DicomService] Charls codec hittades men setConfig är inte tillgänglig');
-        }
-      } catch (error) {
-        console.warn('[DicomService] Kunde inte ladda Charls codec:', error);
-      }
-
-      // Initiera DICOM Image Loader med WebWorkers
-      cornerstoneDICOMImageLoader.init({
+      // Använd vår egen worker med explicit typning
+      (cornerstoneDICOMImageLoader as any).init({
         maxWebWorkers: navigator.hardwareConcurrency || 1,
-        webWorkerPath: '/cornerstoneWADOImageLoaderWebWorker.min.js',
+        webWorkerPath: '/cornerstone-worker.js',
         taskConfiguration: {
           decodeTask: {
-            codecsPath: '/cornerstoneWADOImageLoaderCodecs.min.js',
+            codecsPath: '/cornerstone-worker.js',
           },
-        },
-      });
-      
-      // Registrera vår anpassade worker med Cornerstone WebWorkerManager
-      // enligt dokumentationen
+        }
+      } as DicomImageLoaderOptions);
+
+      // Registrera vår anpassade worker med WebWorkerManager
       this.registerCornerstoneWorker();
-      
-      // Vi kan också fortsätta registrera de specifika filerna manuellt genom intern API
-      if (loader.internal && loader.internal.config) {
-        loader.internal.config.webWorkerPath = '/cornerstoneWADOImageLoaderWebWorker.min.js';
-        loader.internal.config.codecsPath = '/cornerstoneWADOImageLoaderCodecs.min.js';
+
+      // Säkerställ att cornerstone är tillgängligt innan vi sätter det
+      if (cornerstone) {
+        // Använd type assertion för att hantera externa properties
+        (loader as any).external = {};
+        (loader as any).external.cornerstone = cornerstone;
+        
+        // Registrera WADO-URI utan argument
+        loader.wadouri.register();
+      } else {
+        throw new Error('Cornerstone is not initialized');
       }
-      
-      // Registrera WADO-URI-schemat oavsett konfiguration
-      loader.external.cornerstone = cornerstone;
-      loader.wadouri.register(cornerstone);
-      
-      console.log('[DicomService] DICOM Image Loader and custom workers initialized');
+
+      console.log('[DicomService] DICOM Image Loader initialized');
     } catch (error) {
       console.error('Error initializing DICOM Image Loader:', error);
       throw error;
