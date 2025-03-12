@@ -68,7 +68,8 @@
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@types/stats.js": "^0.17.3",
-    "copy-webpack-plugin": "^13.0.0"
+    "copy-webpack-plugin": "^13.0.0",
+    "react-app-rewired": "^2.2.1"
   },
   "proxy": "http://localhost:4000"
 }

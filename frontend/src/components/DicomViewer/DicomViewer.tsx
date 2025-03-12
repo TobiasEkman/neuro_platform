@@ -79,7 +79,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
   const { studyId } = useParams<{ studyId?: string }>();
   
   // State för Canvas-referenser
-  const axialRef = useRef<HTMLCanvasElement>(null);
+  const axialRef = useRef<HTMLDivElement>(null);
   const [renderingEngine, setRenderingEngine] = useState<RenderingEngine | null>(null);
   
   // State för patientdata
@@ -162,6 +162,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
         newToolGroup.setToolActive('WindowLevelTool', {
           bindings: [{ mouseButton: csToolsEnums.MouseBindings.Primary }]
         });
+        
         
         setToolGroup(newToolGroup);
         console.log('Cornerstone initialized successfully');
@@ -265,12 +266,12 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
       console.log("Entering try block");
       
       if (!axialRef.current) {
-        console.log("axialRef.current is null or undefined");
+        console.error("axialRef.current is null or undefined");
         return;
       }
 
       if (!currentEngine) {
-        console.log("No rendering engine available");
+        console.error("No rendering engine available");
         return;
       }
 
@@ -280,6 +281,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
       
       // Hämta bilderna för serien
       const imageIds = await dicomService.getImageIds({ seriesId });
+      console.log("Received imageIds:", imageIds);
       
       if (imageIds.length === 0) {
         console.error('No images found for series');
@@ -299,17 +301,35 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
         type: Enums.ViewportType.STACK,
       };
       
-      currentEngine.enableElement(viewportInput);
+      console.log("Enabling element with input:", viewportInput);
+
+      // Lägg till mer loggning för att felsöka orsaker
+      console.log("Kontrollerar att currentEngine är initierad:", !!currentEngine);
+      console.log("Kontrollerar axialRef.current:", !!axialRef.current);
+
+      console.log("Finns axialRef-element i dokumentet?",
+        axialRef.current ? document.contains(axialRef.current) : 'Ingen ref'
+      );
+
+      currentEngine.enableElement(viewportInput)
+        .then(() => {
+          console.log("enableElement lyckades för:", viewportInput);
+        })
+        .catch((error) => {
+          console.error("enableElement misslyckades för:", viewportInput, error);
+        });
       
       // Hämta viewport och sätt stack
       const viewport = currentEngine.getViewport(viewportId) as Types.IStackViewport;
+      console.log("Got viewport:", viewport);
       
+      console.log("Setting stack with first imageId:", imageIds[0]);
       await viewport.setStack(imageIds);
       
       // Sätt bra window/level om möjligt
+      console.log("Setting viewport properties");
       viewport.setProperties({
         voiRange: {
-          // CT Window för hjärna
           lower: 0,
           upper: 80
         }
@@ -317,12 +337,26 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
       
       // Lägg till viewport till toolGroup om det inte redan är gjort
       if (toolGroup && !toolGroup.hasViewport(viewportId)) {
+        console.log("Adding viewport to toolGroup");
         toolGroup.addViewport(viewportId);
       }
       
       // Rendera viewport
+      console.log("Calling viewport.render()");
       viewport.render();
       
+      // Vänta en kort stund och kontrollera om renderingen lyckades
+      setTimeout(() => {
+        const element = axialRef.current;
+        if (element) {
+          // Istället för att försöka hämta canvas-kontext och bilddata,
+          // kontrollera bara om elementet finns och har dimensioner
+          const rect = element.getBoundingClientRect();
+          console.log("Viewport element dimensions:", rect.width, rect.height);
+          console.log("Viewport element is ready:", !!element);
+        }
+      }, 1000);
+
       setLoading(false);
       
     } catch (error) {
@@ -482,9 +516,12 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
             <ViewerLabel>
               {loading ? 'Loading...' : 'DICOM-image'}
             </ViewerLabel>
-            <Canvas ref={axialRef} />
             
-            {/* Toolbar för verktyg */}
+            <div
+              ref={axialRef}
+              style={{ width: '100%', height: '100%', position: 'relative' }}
+            />
+            
             <ToolbarContainer>
               {toolButtons.map(button => (
                 <ToolButton
@@ -497,7 +534,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
                 </ToolButton>
               ))}
               <button onClick={toggleMprView}>
-                {useMprView ? 'Show Stack' : 'Show MPR'} 
+                {useMprView ? 'Show Stack' : 'Show MPR'}
               </button>
             </ToolbarContainer>
           </ViewerPanel>
