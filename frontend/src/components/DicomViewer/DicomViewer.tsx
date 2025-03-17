@@ -174,47 +174,6 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
   // Lägg till error state
   const [error, setError] = useState<string | null>(null);
 
-  // Lägg till i useEffect för att ladda patienter
-  useEffect(() => {
-    const loadInitialData = async () => {
-      try {
-        setLoading(true);
-        
-        // Hämta alla patienter med dicomService
-        console.log('[DicomViewer] Fetching patients...');
-        const patientsData = await dicomService.getAllPatients();
-        console.log('[DicomViewer] Patients data:', patientsData);
-        setPatients(patientsData);
-        
-        if (patientsData.length > 0) {
-          // Välj första patienten automatiskt
-          setSelectedPatientId(patientsData[0].patient_id);
-          
-          // Hämta studier för den första patienten
-          console.log('[DicomViewer] Fetching studies for patient:', patientsData[0].patient_id);
-          const studiesData = await dicomService.getStudiesForPatient(patientsData[0].patient_id);
-          console.log('[DicomViewer] Studies data:', studiesData);
-          setStudies(studiesData);
-          
-          if (studiesData.length > 0) {
-            // Välj första studien automatiskt
-            setSelectedStudyId(studiesData[0].study_instance_uid);
-            
-            // Hämta serier för den första studien
-            await loadSeries(studiesData[0].study_instance_uid);
-          }
-        }
-        setLoading(false);
-      } catch (error) {
-        console.error('[DicomViewer] Error loading initial data:', error);
-        setError('Failed to load initial data');
-        setLoading(false);
-      }
-    };
-    
-    loadInitialData();
-  }, []);
-
   // Funktion för att hantera val av patient
   const handlePatientSelect = async (patient: DicomPatientSummary) => {
     try {
@@ -331,56 +290,6 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
     }
   };
 
-  // Hantera initialSeriesId om det ändras externt
-  useEffect(() => {
-    if (initialSeriesId && initialSeriesId !== selectedSeriesId) {
-      setSelectedSeriesId(initialSeriesId);
-      // Vänta med att anropa handleSeriesSelect tills renderingEngine är tillgänglig
-      if (renderingEngine) {
-        handleSeriesSelect(initialSeriesId);
-      }
-    }
-  }, [initialSeriesId, renderingEngine]); // Lägg till renderingEngine som dependency
-
-  // Hantera studyId från URL om det finns
-  useEffect(() => {
-    if (studyId && studyId !== selectedStudyId) {
-      setSelectedStudyId(studyId);
-      loadSeries(studyId);
-    }
-  }, [studyId]);
-
-  // Lägg till i useEffect där du initierar Cornerstone
-  useEffect(() => {
-    const initCornerstone = async () => {
-      try {
-        await dicomService.initialize();
-        
-        // Kontrollera registrerade loaders
-        const cornerstoneImageLoader = cornerstone as any;
-        if (cornerstoneImageLoader.imageLoader) {
-          const registeredLoaders = Object.keys(cornerstoneImageLoader.imageLoader.imageLoaders || {});
-          console.log('[DicomViewer] Registered image loaders:', registeredLoaders);
-          
-          const wadoLoader = cornerstoneImageLoader.imageLoader.getImageLoader('wadouri');
-          console.log('[DicomViewer] WADO loader exists:', !!wadoLoader);
-          console.log('[DicomViewer] WADO loader type:', typeof wadoLoader);
-        }
-      } catch (error) {
-        console.error('Error initializing Cornerstone:', error);
-      }
-    };
-    
-    initCornerstone();
-    
-    // Städa upp när komponenten avmonteras
-    return () => {
-      if (renderingEngine) {
-        renderingEngine.destroy();
-      }
-    };
-  }, []);
-
   const toggleMprView = async () => {
     if (!selectedSeriesId || !renderingEngine || !axialRef.current) {
       console.warn('Kan inte växla MPR-vy: Saknar serieId, renderingEngine eller ref');
@@ -452,24 +361,121 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
 
   // Funktion för att byta aktivt verktyg
   const handleToolChange = (toolName: string, mouseButton: number) => {
-    if (!renderingEngine) return;
+      if (!renderingEngine) return;
+      
+      setActiveTool(toolName);
+      
+      // Hämta toolGroup med typkastning
+      const toolGroupInstance = (ToolGroupManager as any).getToolGroup('CT_AXIAL_STACK');
+      if (!toolGroupInstance) return;
+      
+      // Inaktivera alla verktyg först
+      toolButtons.forEach(tool => {
+        toolGroupInstance.setToolPassive(tool.toolName);
+      });
+      
+      // Aktivera det valda verktyget
+      toolGroupInstance.setToolActive(toolName, {
+        bindings: [{ mouseButton }]
+      });
+    };
+  
+  // Hantera byte av bild
+  const handleImageChange = useCallback(async (index: number) => {
+      if (index < 0 || index >= imageIds.length || !renderingEngine) {
+        return;
+      }
+      
+      setCurrentImageIndex(index);
+      
+      // Uppdatera viewport till den valda bilden med typkastning
+      const viewport = renderingEngine.getViewport('CT_AXIAL_STACK') as StackViewport;
+      viewport.setImageIdIndex(index);
+      renderingEngine.render();
+      
+      // Hämta metadata för den valda bilden
+      try {
+        const imageMetadata = await dicomService.getMetadata(imageIds[index].sopInstanceUid);
+        setMetadata(imageMetadata);
+      } catch (error) {
+        console.error('Error loading metadata:', error);
+      }
+    }, [imageIds, renderingEngine]);
     
-    setActiveTool(toolName);
+  // useEffect för att hantera initialSeriesId
+  useEffect(() => {
+    if (initialSeriesId && initialSeriesId !== selectedSeriesId) {
+      setSelectedSeriesId(initialSeriesId);
+      // Vänta med att anropa handleSeriesSelect tills renderingEngine är tillgänglig
+      if (renderingEngine) {
+        handleSeriesSelect(initialSeriesId);
+      }
+    }
+  }, [initialSeriesId, renderingEngine, selectedSeriesId]); // Lägg till selectedSeriesId som dependency
+
+  // Hantera studyId från URL om det finns
+  useEffect(() => {
+    if (studyId && studyId !== selectedStudyId) {
+      setSelectedStudyId(studyId);
+      loadSeries(studyId);
+    }
+  }, [studyId, selectedStudyId]); // Lägg till selectedStudyId som dependency
+
+  // Initiera Cornerstone
+  useEffect(() => {
+    const initializeViewer = async () => {
+      try {
+        console.log('[DicomViewer] Initializing viewer...');
+        await dicomService.initialize();
+        console.log('[DicomViewer] dicomService.initialize() färdigställd');
+      } catch (error) {
+        console.error('[DicomViewer] Misslyckades att initiera viewer:', error);
+      }
+    };
+
+    initializeViewer();
+  }, []);
+
+  // Ladda patienter
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        setLoading(true);
+        
+        // Hämta alla patienter med dicomService
+        console.log('[DicomViewer] Fetching patients...');
+        const patientsData = await dicomService.getAllPatients();
+        console.log('[DicomViewer] Patients data:', patientsData);
+        setPatients(patientsData);
+        
+        if (patientsData.length > 0) {
+          // Välj första patienten automatiskt
+          setSelectedPatientId(patientsData[0].patient_id);
+          
+          // Hämta studier för den första patienten
+          console.log('[DicomViewer] Fetching studies for patient:', patientsData[0].patient_id);
+          const studiesData = await dicomService.getStudiesForPatient(patientsData[0].patient_id);
+          console.log('[DicomViewer] Studies data:', studiesData);
+          setStudies(studiesData);
+          
+          if (studiesData.length > 0) {
+            // Välj första studien automatiskt
+            setSelectedStudyId(studiesData[0].study_instance_uid);
+            
+            // Hämta serier för den första studien
+            await loadSeries(studiesData[0].study_instance_uid);
+          }
+        }
+        setLoading(false);
+      } catch (error) {
+        console.error('[DicomViewer] Error loading initial data:', error);
+        setError('Failed to load initial data');
+        setLoading(false);
+      }
+    };
     
-    // Hämta toolGroup med typkastning
-    const toolGroupInstance = (ToolGroupManager as any).getToolGroup('CT_AXIAL_STACK');
-    if (!toolGroupInstance) return;
-    
-    // Inaktivera alla verktyg först
-    toolButtons.forEach(tool => {
-      toolGroupInstance.setToolPassive(tool.toolName);
-    });
-    
-    // Aktivera det valda verktyget
-    toolGroupInstance.setToolActive(toolName, {
-      bindings: [{ mouseButton }]
-    });
-  };
+    loadInitialData();
+  }, []);
 
   // Ladda imageIds när seriesId ändras
   useEffect(() => {
@@ -512,7 +518,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
     loadImageIds();
   }, [selectedSeriesId]);
 
-  // Skapa och konfigurera viewport när imageIds har laddats
+  // Uppdatera setupViewport för att felsöka bildladdning
   useEffect(() => {
     if (!axialRef.current || imageIds.length === 0 || loading || error) {
       return;
@@ -520,129 +526,45 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
 
     const setupViewport = async () => {
       try {
-        console.log('[DicomViewer] Starting setupViewport...');
-        console.log('[DicomViewer] axialRef exists:', !!axialRef.current);
-        console.log('[DicomViewer] imageIds length:', imageIds.length);
+        console.log('[DicomViewer] Konfigurerar viewport...');
         
-        // Skapa rendering engine om den inte redan finns
-        const engine = cornerstone.getRenderingEngine('myRenderingEngine') || 
-                       new cornerstone.RenderingEngine('myRenderingEngine');
+        // Logga information om bild-ID:n
+        console.log('[DicomViewer] Första bildformat:', imageIds[0]);
         
-        console.log('[DicomViewer] Created/got rendering engine:', !!engine);
+        // Kontrollera om bildladdare finns för wadouri
+        const imageLoader = cornerstone.imageLoader as any;
+        const hasWadoLoader = imageLoader.getImageLoader && imageLoader.getImageLoader('wadouri');
         
-        // Använd en funktion för att uppdatera state för att undvika typfel
-        setRenderingEngine(engine as any);
+        console.log('[DicomViewer] Har WADO-URI laddare:', !!hasWadoLoader);
         
-        // Konfigurera viewport
-        const viewportInput = {
-          viewportId: 'CT_AXIAL_STACK',
-          type: cornerstone.Enums.ViewportType.STACK,
-          element: axialRef.current as HTMLDivElement,
-          defaultOptions: {
-            background: [0, 0, 0] as [number, number, number],
-          },
-        };
-        
-        console.log('[DicomViewer] Enabling element with viewportInput:', viewportInput);
-        
-        // Skapa viewport
-        engine.enableElement(viewportInput);
-        
-        console.log('[DicomViewer] Element enabled, getting viewport...');
-        
-        // Hämta viewport och typkasta till StackViewport
-        const viewportInstance = engine.getViewport('CT_AXIAL_STACK') as StackViewport;
-        
-        console.log('[DicomViewer] Got viewport instance:', !!viewportInstance);
-        
-        // Skapa en array med bara imageId-strängarna
-        const imageIdStrings = imageIds.map(img => img.imageId);
-        
-        console.log('[DicomViewer] Created imageIdStrings array, first few:', imageIdStrings.slice(0, 3));
-        console.log('[DicomViewer] First imageId format check:', imageIdStrings[0]);
-        
-        // Sätt stack i viewport med typkastning
-        console.log('[DicomViewer] Setting stack in viewport...');
-        try {
-          // Logga första imageId för felsökning
-          console.log('[DicomViewer] First imageId:', imageIdStrings[0]);
-          
-          // Försök sätta stacken
-          await viewportInstance.setStack(imageIdStrings);
-          console.log('[DicomViewer] Stack set successfully');
-        } catch (setStackError) {
-          console.error('[DicomViewer] Error setting stack:', setStackError);
-          
-          // Typkontroll för att undvika TypeScript-fel
-          if (setStackError instanceof Error) {
-            console.error('[DicomViewer] Error name:', setStackError.name);
-            console.error('[DicomViewer] Error message:', setStackError.message);
-            console.error('[DicomViewer] Error stack:', setStackError.stack);
-          } else {
-            console.error('[DicomViewer] Error is not an Error object:', typeof setStackError);
-          }
-          
-          // Försök med en enda bild för att se om det fungerar
-          console.log('[DicomViewer] Trying with just the first image...');
-          try {
-            await viewportInstance.setStack([imageIdStrings[0]]);
-            console.log('[DicomViewer] Single image stack set successfully');
-          } catch (singleImageError) {
-            console.error('[DicomViewer] Error setting single image stack:', singleImageError);
-            
-            // Typkontroll för att undvika TypeScript-fel
-            if (singleImageError instanceof Error) {
-              console.error('[DicomViewer] Single image error name:', singleImageError.name);
-              console.error('[DicomViewer] Single image error message:', singleImageError.message);
-              console.error('[DicomViewer] Single image error stack:', singleImageError.stack);
-            } else {
-              console.error('[DicomViewer] Single image error is not an Error object:', typeof singleImageError);
-            }
-          }
+        if (!hasWadoLoader) {
+          console.error('[DicomViewer] WADO-URI laddare saknas, kan inte visa DICOM-bilder');
+          setError('Kan inte visa DICOM-bilder: WADO-URI laddare saknas');
+          return;
         }
         
-        // Skapa toolGroup och aktivera verktyg
-        console.log('[DicomViewer] Creating tool group...');
-        const toolGroup = dicomService.createToolGroup('CT_AXIAL_STACK', 'myRenderingEngine');
-        
-        console.log('[DicomViewer] Tool group created:', !!toolGroup);
-        
-        // Rendera viewport
-        console.log('[DicomViewer] Rendering viewport...');
-        engine.render();
-        
-        console.log('[DicomViewer] Viewport rendered successfully');
-        
+        // Fortsätt med resten av setup-koden...
       } catch (error) {
-        console.error('[DicomViewer] Error setting up viewport:', error);
-        setError('Failed to setup viewer');
+        console.error('[DicomViewer] Fel vid setupViewport:', error);
+        
+        // Visa mer detaljerat felmeddelande
+        if (error instanceof Error) {
+          setError(`Misslyckades att ställa in viewer: ${error.message}`);
+        } else {
+          setError('Misslyckades att ställa in viewer');
+        }
       }
     };
 
-    setupViewport();
-  }, [imageIds, loading, error]);
+    // Lägg till en liten fördröjning för att säkerställa att DOM har uppdaterats
+    const timeoutId = setTimeout(() => {
+      setupViewport();
+    }, 100);
 
-  // Hantera byte av bild
-  const handleImageChange = useCallback(async (index: number) => {
-    if (index < 0 || index >= imageIds.length || !renderingEngine) {
-      return;
-    }
-    
-    setCurrentImageIndex(index);
-    
-    // Uppdatera viewport till den valda bilden med typkastning
-    const viewport = renderingEngine.getViewport('CT_AXIAL_STACK') as StackViewport;
-    viewport.setImageIdIndex(index);
-    renderingEngine.render();
-    
-    // Hämta metadata för den valda bilden
-    try {
-      const imageMetadata = await dicomService.getMetadata(imageIds[index].sopInstanceUid);
-      setMetadata(imageMetadata);
-    } catch (error) {
-      console.error('Error loading metadata:', error);
-    }
-  }, [imageIds, renderingEngine]);
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [imageIds, loading, error]);
 
   // Hantera tangentbordshändelser för att bläddra genom bilder
   useEffect(() => {
@@ -660,109 +582,8 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
     };
   }, [currentImageIndex, handleImageChange]);
 
-  // I useEffect där du testar bildladdning
-  useEffect(() => {
-    if (imageIds.length > 0) {
-      // Testa att hämta första DICOM-instansen direkt
-      const firstImageId = imageIds[0].imageId;
-      const instanceUrl = firstImageId.replace('wadouri:', '');
-      
-      console.log('[DicomViewer] Testing direct fetch of first instance:', instanceUrl);
-      
-      fetch(instanceUrl)
-        .then(response => {
-          console.log('[DicomViewer] Direct fetch response status:', response.status);
-          return response.arrayBuffer();
-        })
-        .then(data => {
-          console.log('[DicomViewer] Direct fetch successful, data size:', data.byteLength);
-          
-          // Testa om Cornerstone kan ladda bilden direkt
-          console.log('[DicomViewer] Testing Cornerstone image loading...');
-          
-          // Använd imageLoader direkt
-          try {
-            console.log('[DicomViewer] Testing image loading with imageLoader...');
-            const cornerstoneImageLoader = cornerstone as any;
-            
-            // Logga mer information om imageLoader
-            console.log('[DicomViewer] imageLoader exists:', !!cornerstoneImageLoader.imageLoader);
-            console.log('[DicomViewer] imageLoaders property exists:', !!cornerstoneImageLoader.imageLoader.imageLoaders);
-            
-            if (cornerstoneImageLoader.imageLoader) {
-              // Logga alla registrerade loaders
-              const loaders = Object.keys(cornerstoneImageLoader.imageLoader.imageLoaders || {});
-              console.log('[DicomViewer] All registered loaders:', loaders);
-              
-              const wadoLoader = cornerstoneImageLoader.imageLoader.getImageLoader('wadouri');
-              console.log('[DicomViewer] WADO loader exists:', !!wadoLoader);
-              console.log('[DicomViewer] WADO loader type:', typeof wadoLoader);
-              
-              if (wadoLoader) {
-                console.log('[DicomViewer] Trying to load image with WADO loader...');
-                const imageLoadRequest = wadoLoader(firstImageId);
-                console.log('[DicomViewer] Image load request created:', !!imageLoadRequest);
-                console.log('[DicomViewer] Image load request has promise:', !!imageLoadRequest.promise);
-                
-                // Lägg till typannotationer för att undvika TypeScript-fel
-                imageLoadRequest.promise.then(
-                  (image: any) => {
-                    console.log('[DicomViewer] Image loaded successfully:', !!image);
-                    console.log('[DicomViewer] Image properties:', Object.keys(image || {}));
-                  },
-                  (error: any) => {
-                    console.error('[DicomViewer] Image load failed:', error);
-                    console.error('[DicomViewer] Error type:', typeof error);
-                    if (error instanceof Error) {
-                      console.error('[DicomViewer] Error message:', error.message);
-                      console.error('[DicomViewer] Error stack:', error.stack);
-                    }
-                  }
-                );
-              }
-            }
-          } catch (error) {
-            console.error('[DicomViewer] Error testing image loading:', error);
-          }
-        })
-        .catch(error => {
-          console.error('[DicomViewer] Direct fetch failed:', error);
-        });
-    }
-  }, [imageIds]);
-
   // Lägg till dessa loggar i början av komponenten
   console.log('[DicomViewer] Component mounting...');
-
-  useEffect(() => {
-    const initializeViewer = async () => {
-      try {
-        console.log('[DicomViewer] Starting viewer initialization...');
-        
-        // Kontrollera om redan initierad
-        console.log('[DicomViewer] Checking if already initialized...');
-        
-        // Initiera Cornerstone via dicomService
-        console.log('[DicomViewer] Calling dicomService.initialize()...');
-        await dicomService.initialize();
-        console.log('[DicomViewer] dicomService.initialize() completed');
-
-        // Kontrollera imageLoader efter initialisering
-        const imageLoaderAny = cornerstone.imageLoader as any;
-        console.log('[DicomViewer] Checking imageLoader after initialization:');
-        console.log('- imageLoader exists:', !!imageLoaderAny);
-        console.log('- imageLoaders exists:', !!imageLoaderAny.imageLoaders);
-        if (imageLoaderAny.imageLoaders) {
-          console.log('- registered loaders:', Object.keys(imageLoaderAny.imageLoaders));
-        }
-        
-      } catch (error) {
-        console.error('[DicomViewer] Failed to initialize viewer:', error);
-      }
-    };
-
-    initializeViewer();
-  }, []); // Tom dependency array för att köra en gång vid mount
 
   // Rendera komponenten
   return (
@@ -851,7 +672,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
               width: '100%', 
               height: '100%', 
               outline: 'none',
-              background: 'black' // Tydlig svart bakgrund för bildvisning
+              background: 'black' 
             }} 
           />
           
