@@ -106,44 +106,63 @@ export class DicomService {
    */
   async initialize(): Promise<void> {
     if (this.initialized) {
+      console.log('[DicomService] Already initialized, skipping initialization');
       return;
     }
 
     try {
-      console.log('[DicomService] Initializing Cornerstone3D...');
+      console.log('[DicomService] Starting initialization...');
       
       // Initiera Cornerstone
+      console.log('[DicomService] Initializing Cornerstone...');
       await cornerstone.init();
       
       // Initiera verktyg
+      console.log('[DicomService] Initializing tools...');
       await toolsInit();
       
       // Konfigurera DICOM Image Loader
+      console.log('[DicomService] Configuring DICOM Image Loader...');
+      
+      // Sätt externa beroenden
+      console.log('[DicomService] Setting external dependencies...');
       cornerstoneDICOMImageLoader.external.cornerstone = cornerstone;
       cornerstoneDICOMImageLoader.external.dicomParser = (window as any).dicomParser;
       
-      // Konfigurera webworkers för bildladdning
+      // Konfigurera webworkers
       const config = {
         maxWebWorkers: navigator.hardwareConcurrency || 4,
         startWebWorkersOnDemand: true,
       };
       
+      console.log('[DicomService] Initializing web workers with config:', config);
       cornerstoneDICOMImageLoader.webWorkerManager.initialize(config);
       
-      // Registrera DICOM-bildladdare med typkastning
-      cornerstoneImageLoader.imageLoader.registerImageLoader(
-        'wadouri',
-        cornerstoneDICOMImageLoader.wadouri.loadImage
-      );
+      // Registrera DICOM-bildladdare för wadouri-schemat
+      console.log('[DicomService] Registering wadouri image loader...');
+      
+      // Skapa imageLoaders-objektet om det inte finns
+      if (!cornerstoneImageLoader.imageLoader.imageLoaders) {
+        console.log('[DicomService] Creating imageLoaders object...');
+        cornerstoneImageLoader.imageLoader.imageLoaders = {};
+      }
+      
+      // Registrera wadouri-loadern direkt i imageLoaders-objektet
+      console.log('[DicomService] Directly registering wadouri loader...');
+      cornerstoneImageLoader.imageLoader.imageLoaders['wadouri'] = cornerstoneDICOMImageLoader.wadouri.loadImage;
+      
+      // Kontrollera registrerade loaders
+      const registeredLoaders = Object.keys(cornerstoneImageLoader.imageLoader.imageLoaders || {});
+      console.log('[DicomService] Registered image loaders after registration:', registeredLoaders);
       
       // Registrera verktyg
-      // Här använder vi verktygsnamn istället för direkta importer
+      console.log('[DicomService] Registering tools...');
       this.registerTools();
       
-      console.log('[DicomService] Cornerstone3D initialized successfully');
+      console.log('[DicomService] Initialization completed successfully');
       this.initialized = true;
     } catch (error) {
-      console.error('[DicomService] Failed to initialize Cornerstone3D:', error);
+      console.error('[DicomService] Failed to initialize:', error);
       throw new Error('Failed to initialize DICOM viewer');
     }
   }
