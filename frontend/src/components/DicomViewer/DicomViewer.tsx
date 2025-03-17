@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import dicomService from '../../services/dicomService';
-import { DicomStudy, DicomSeries } from '../../types/medical';
-import { Patient } from '../../types/patient';
+import styled from 'styled-components';
+import * as cornerstone from '@cornerstonejs/core';
+import * as cornerstoneTools from '@cornerstonejs/tools';
+import dicomService, { DicomImageId, DicomMetadata } from '../../services/dicomService';
+import { DicomStudy, DicomSeries, DicomPatientSummary } from '../../types/medical';
 import {
   ViewerContainer,
   ViewerGrid,
@@ -16,21 +18,33 @@ import {
   ListTitle,
   SeriesItem,
   ToolbarContainer,
-  ToolButton
+  ToolButton,
+  ControlsContainer,
+  ImageControls,
+  InfoPanel
 } from './styles';
 import { 
   RenderingEngine,
   Types,
   Enums,
-  cache as cornerstoneCache
+  cache as cornerstoneCache,
+  StackViewport
 } from '@cornerstonejs/core';
 
 // Importera nödvändiga verktyg direkt från csTools
 import * as csTools from '@cornerstonejs/tools';
 const { 
-  ToolGroupManager, 
   Enums: csToolsEnums 
 } = csTools as any;
+
+// Lägg till i början av filen
+interface ToolGroupManagerType {
+  createToolGroup: (name: string) => any;
+  getToolGroup: (name: string) => any;
+}
+
+// Och sedan i din import-sektion
+const ToolGroupManager = (csTools as any).ToolGroupManager as ToolGroupManagerType;
 
 // Toolbar-knappdefinitioner
 interface ToolButtonDefinition {
@@ -72,6 +86,60 @@ interface DicomViewerProps {
   onSeriesSelect?: (seriesId: string) => void;
 }
 
+// Styled components för UI
+const MetadataContainer = styled.div`
+  margin-top: 10px;
+`;
+
+const MetadataItem = styled.div`
+  margin-bottom: 5px;
+  display: flex;
+  justify-content: space-between;
+`;
+
+const MetadataLabel = styled.span`
+  font-weight: bold;
+  color: #aaa;
+`;
+
+const MetadataValue = styled.span`
+  color: white;
+`;
+
+const LoadingOverlay = styled.div`
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: rgba(0, 0, 0, 0.7);
+  z-index: 10;
+`;
+
+const ErrorOverlay = styled(LoadingOverlay)`
+  background-color: rgba(100, 0, 0, 0.7);
+`;
+
+// Verktyg som ska visas i toolbaren
+const tools = [
+  { name: 'WindowLevel', label: 'Window/Level', icon: 'W' },
+  { name: 'Zoom', label: 'Zoom', icon: 'Z' },
+  { name: 'Pan', label: 'Pan', icon: 'P' },
+  { name: 'Length', label: 'Measure', icon: 'M' },
+];
+
+// Lägg till denna typ i början av filen
+type AnyRenderingEngine = any;
+
+const CanvasContainer = styled.div`
+  width: 100%;
+  height: 100%;
+  outline: none;
+`;
+
 const DicomViewer: React.FC<DicomViewerProps> = ({
   seriesId: initialSeriesId
 }) => {
@@ -80,10 +148,10 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
   
   // State för Canvas-referenser
   const axialRef = useRef<HTMLDivElement>(null);
-  const [renderingEngine, setRenderingEngine] = useState<RenderingEngine | null>(null);
+  const [renderingEngine, setRenderingEngine] = useState<AnyRenderingEngine>(null);
   
   // State för patientdata
-  const [patients, setPatients] = useState<Patient[]>([]);
+  const [patients, setPatients] = useState<DicomPatientSummary[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
   const [studies, setStudies] = useState<DicomStudy[]>([]);
   const [selectedStudyId, setSelectedStudyId] = useState<string | null>(studyId || null);
@@ -98,10 +166,170 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
   const [activeTool, setActiveTool] = useState<string>('WindowLevelTool');
   const [toolGroup, setToolGroup] = useState<any>(null);
 
-  // Ladda patienter när komponenten monteras
+  // State för bildmetadata
+  const [imageIds, setImageIds] = useState<DicomImageId[]>([]);
+  const [currentImageIndex, setCurrentImageIndex] = useState<number>(0);
+  const [metadata, setMetadata] = useState<DicomMetadata | null>(null);
+
+  // Lägg till error state
+  const [error, setError] = useState<string | null>(null);
+
+  // Lägg till i useEffect för att ladda patienter
   useEffect(() => {
-    loadPatients();
+    const loadInitialData = async () => {
+      try {
+        setLoading(true);
+        
+        // Hämta alla patienter med dicomService
+        console.log('[DicomViewer] Fetching patients...');
+        const patientsData = await dicomService.getAllPatients();
+        console.log('[DicomViewer] Patients data:', patientsData);
+        setPatients(patientsData);
+        
+        if (patientsData.length > 0) {
+          // Välj första patienten automatiskt
+          setSelectedPatientId(patientsData[0].patient_id);
+          
+          // Hämta studier för den första patienten
+          console.log('[DicomViewer] Fetching studies for patient:', patientsData[0].patient_id);
+          const studiesData = await dicomService.getStudiesForPatient(patientsData[0].patient_id);
+          console.log('[DicomViewer] Studies data:', studiesData);
+          setStudies(studiesData);
+          
+          if (studiesData.length > 0) {
+            // Välj första studien automatiskt
+            setSelectedStudyId(studiesData[0].study_instance_uid);
+            
+            // Hämta serier för den första studien
+            await loadSeries(studiesData[0].study_instance_uid);
+          }
+        }
+        setLoading(false);
+      } catch (error) {
+        console.error('[DicomViewer] Error loading initial data:', error);
+        setError('Failed to load initial data');
+        setLoading(false);
+      }
+    };
+    
+    loadInitialData();
   }, []);
+
+  // Funktion för att hantera val av patient
+  const handlePatientSelect = async (patient: DicomPatientSummary) => {
+    try {
+      setLoading(true);
+      setSelectedPatientId(patient.patient_id);
+      
+      console.log('[DicomViewer] Selected patient:', patient.patient_id);
+      
+      // Hämta studier för den valda patienten
+      const studiesData = await dicomService.getStudiesForPatient(patient.patient_id);
+      console.log('[DicomViewer] Studies for patient:', studiesData);
+      setStudies(studiesData);
+      
+      // Rensa tidigare valda studier och serier
+      setSelectedStudyId(null);
+      setSelectedSeriesId(null);
+      setSeries([]);
+      setImageIds([]);
+      
+      // Om det finns studier, välj den första automatiskt
+      if (studiesData.length > 0) {
+        setSelectedStudyId(studiesData[0].study_instance_uid);
+        await loadSeries(studiesData[0].study_instance_uid);
+      }
+      
+      setLoading(false);
+    } catch (error) {
+      console.error('Error loading studies for patient:', error);
+      setError(`Failed to load studies for patient: ${error}`);
+      setLoading(false);
+    }
+  };
+
+  // Funktion för att ladda serier för en studie
+  const loadSeries = async (studyId: string) => {
+    try {
+      console.log('[DicomViewer] Loading series for study:', studyId);
+      const seriesData = await dicomService.getSeriesForStudy(studyId);
+      console.log('[DicomViewer] Series data:', seriesData);
+      setSeries(seriesData);
+      
+      // Om det finns serier, välj den första automatiskt
+      if (seriesData.length > 0) {
+        setSelectedSeriesId(seriesData[0].series_uid);
+        await renderSeries(seriesData[0].series_uid);
+      }
+    } catch (error) {
+      console.error('Error loading series for study:', error);
+      setError(`Failed to load series: ${error}`);
+    }
+  };
+
+  // Funktion för att hantera val av serie
+  const handleSeriesSelect = async (seriesId: string) => {
+    try {
+      console.log('[DicomViewer] Selected series:', seriesId);
+      setSelectedSeriesId(seriesId);
+      
+      // Kontrollera att seriesId är definierat innan vi anropar renderSeries
+      if (!seriesId) {
+        console.error('[DicomViewer] seriesId is undefined in handleSeriesSelect');
+        return;
+      }
+      
+      // Anropa renderSeries med seriesId
+      await renderSeries(seriesId);
+    } catch (error) {
+      console.error('Error selecting series:', error);
+      setError(`Failed to select series: ${error}`);
+    }
+  };
+
+  // Funktion för att rendera en serie
+  const renderSeries = async (seriesId: string) => {
+    try {
+      console.log('[DicomViewer] Rendering series:', seriesId);
+      
+      // Kontrollera att seriesId är definierat
+      if (!seriesId) {
+        console.error('[DicomViewer] seriesId is undefined in renderSeries');
+        setError('Cannot render series: Series ID is missing');
+        return;
+      }
+      
+      setLoading(true);
+      
+      // Hämta bilderna för den valda serien
+      console.log('[DicomViewer] Fetching imageIds for series:', seriesId);
+      
+      // Skapa ett objekt med seriesId
+      const params = { seriesId: seriesId };
+      console.log('[DicomViewer] Params object:', JSON.stringify(params));
+      
+      // Anropa dicomService.getImageIds med params
+      const imageIdsData = await dicomService.getImageIds(params);
+      
+      console.log('[DicomViewer] Received imageIds:', imageIdsData);
+      setImageIds(imageIdsData);
+      
+      // Sätt första bilden som aktiv
+      if (imageIdsData.length > 0) {
+        setCurrentImageIndex(0);
+        
+        // Hämta metadata för första bilden
+        const imageMetadata = await dicomService.getMetadata(imageIdsData[0].sopInstanceUid);
+        setMetadata(imageMetadata);
+      }
+      
+      setLoading(false);
+    } catch (error) {
+      console.error('Error rendering series:', error);
+      setError(`Failed to render series: ${error}`);
+      setLoading(false);
+    }
+  };
 
   // Hantera initialSeriesId om det ändras externt
   useEffect(() => {
@@ -124,251 +352,23 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
 
   // Initiera Cornerstone och verktyg
   useEffect(() => {
-    let engineInstance: RenderingEngine | null = null;
-
     const initCornerstone = async () => {
       try {
-        console.log("Starting Cornerstone initialization...");
-        setLoading(true);
-        
-        // Initiera DicomService
-        console.log("Initializing DicomService...");
         await dicomService.initialize();
-        
-        // Skapa rendering engine
-        console.log("Creating RenderingEngine...");
-        engineInstance = new RenderingEngine('myRenderingEngine');
-        console.log("RenderingEngine created:", engineInstance);
-        setRenderingEngine(engineInstance);
-        
-        // Skapa och konfigurera toolGroup
-        console.log("Creating ToolGroup...");
-        const toolGroupId = 'myToolGroup';
-        const newToolGroup = ToolGroupManager.createToolGroup(toolGroupId);
-        
-        // Lägg till alla registrerade verktyg till toolGroup
-        console.log("Adding tools to ToolGroup...");
-        newToolGroup.addTool('PanTool');
-        newToolGroup.addTool('ZoomTool');
-        newToolGroup.addTool('WindowLevelTool');
-        newToolGroup.addTool('StackScrollTool');
-        
-        // Aktivera scrollhjulet för stackNavigering som standard
-        newToolGroup.setToolActive('StackScrollTool', {
-          bindings: [{ mouseButton: csToolsEnums.MouseBindings.Wheel }]
-        });
-        
-        // Aktivera standardverktyget (WindowLevel)
-        newToolGroup.setToolActive('WindowLevelTool', {
-          bindings: [{ mouseButton: csToolsEnums.MouseBindings.Primary }]
-        });
-        
-        
-        setToolGroup(newToolGroup);
-        console.log('Cornerstone initialized successfully');
-
-        // Om vi har en initial series, rendera den nu när allt är initierat
-        if (selectedSeriesId) {
-          console.log("Initial series detected, rendering...");
-          await renderSeries(selectedSeriesId, engineInstance);
-        }
-
       } catch (error) {
-        console.error('Error during Cornerstone initialization:', error);
-        setLoading(false);
+        console.error('Error initializing Cornerstone:', error);
       }
     };
-    
-    console.log("Calling initCornerstone...");
+
     initCornerstone();
-    
+
+    // Städa upp när komponenten avmonteras
     return () => {
-      console.log("Cleaning up Cornerstone...");
-      if (engineInstance) {
-        console.log("Destroying renderingEngine...");
-        engineInstance.destroy();
-      }
-      console.log("Purging Cornerstone cache...");
-      cornerstoneCache.purgeCache();
-    };
-  }, [selectedSeriesId]); // Lägg till selectedSeriesId som dependency
-
-  const loadPatients = async () => {
-    try {
-      const fetchedPatients = await dicomService.getPatients({ withDicom: true });
-      
-      if (Array.isArray(fetchedPatients)) {
-        setPatients(fetchedPatients);
-      } else {
-        console.error('Fetched patients is not an array:', fetchedPatients);
-        setPatients([]);
-      }
-    } catch (error) {
-      console.error('Error loading patients:', error);
-      setPatients([]);
-    }
-  };
-
-  const loadStudies = async (patientId: string) => {
-    try {
-      const fetchedStudies = await dicomService.getStudiesForPatient(patientId);
-      setStudies(fetchedStudies);
-      
-      // Om vi har studier och inget är valt, välj det första
-      if (fetchedStudies.length > 0 && !selectedStudyId) {
-        setSelectedStudyId(fetchedStudies[0].study_instance_uid);
-        loadSeries(fetchedStudies[0].study_instance_uid);
-      }
-    } catch (error) {
-      console.error('Failed to load studies:', error);
-    }
-  };
-
-  const loadSeries = async (studyId: string) => {
-    try {
-      const study = await dicomService.getStudy(studyId);
-      setSeries(study.series || []);
-      
-      // Om vi har serier och inget är valt, välj den första
-      if (study.series && study.series.length > 0 && !selectedSeriesId) {
-        const firstSeriesId = study.series[0].series_uid;
-        setSelectedSeriesId(firstSeriesId);
-        handleSeriesSelect(firstSeriesId);
-      }
-    } catch (error) {
-      console.error('Failed to load series:', error);
-    }
-  };
-
-  const handleSeriesSelect = async (seriesId: string) => {
-    try {
-      setSelectedSeriesId(seriesId);
-      
-      // Ladda och visa serien med Cornerstone3D
       if (renderingEngine) {
-        await renderSeries(seriesId);
-      } else {
-        console.log("Waiting for rendering engine to be available...");
+        renderingEngine.destroy();
       }
-    } catch (error) {
-      console.error('Failed to load series:', error);
-      setSelectedSeriesId(null);
-    }
-  };
-
-  // Uppdatera renderSeries för att ta emot renderingEngine som parameter
-  const renderSeries = async (seriesId: string, engine?: RenderingEngine | null) => {
-    console.log("renderSeries called with seriesId:", seriesId);
-    const currentEngine = engine || renderingEngine;
-    console.log("Using engine:", currentEngine);
-    
-    try {
-      console.log("Entering try block");
-      
-      if (!axialRef.current) {
-        console.error("axialRef.current is null or undefined");
-        return;
-      }
-
-      if (!currentEngine) {
-        console.error("No rendering engine available");
-        return;
-      }
-
-      console.log("Passed all checks - axialRef and renderingEngine are available");
-      console.log("seriesId: ", seriesId);
-      setLoading(true);
-      
-      // Hämta bilderna för serien
-      const imageIds = await dicomService.getImageIds({ seriesId });
-      console.log("Received imageIds:", imageIds);
-      
-      if (imageIds.length === 0) {
-        console.error('No images found for series');
-        setLoading(false);
-        return;
-      }
-      
-      console.log(`Rendering ${imageIds.length} images from series ${seriesId}`);
-      
-      // Skapa viewport
-      const viewportId = 'CT_AXIAL_STACK';
-      
-      // Skapa viewport-input
-      const viewportInput = {
-        viewportId,
-        element: axialRef.current,
-        type: Enums.ViewportType.STACK,
-      };
-      
-      console.log("Enabling element with input:", viewportInput);
-
-      // Lägg till mer loggning för att felsöka orsaker
-      console.log("Kontrollerar att currentEngine är initierad:", !!currentEngine);
-      console.log("Kontrollerar axialRef.current:", !!axialRef.current);
-
-      console.log("Finns axialRef-element i dokumentet?",
-        axialRef.current ? document.contains(axialRef.current) : 'Ingen ref'
-      );
-
-      currentEngine.enableElement(viewportInput)
-        .then(() => {
-          console.log("enableElement lyckades för:", viewportInput);
-        })
-        .catch((error) => {
-          console.error("enableElement misslyckades för:", viewportInput, error);
-        });
-      
-      // Hämta viewport och sätt stack
-      const viewport = currentEngine.getViewport(viewportId) as Types.IStackViewport;
-      console.log("Got viewport:", viewport);
-      
-      console.log("Setting stack with first imageId:", imageIds[0]);
-      await viewport.setStack(imageIds);
-      
-      // Sätt bra window/level om möjligt
-      console.log("Setting viewport properties");
-      viewport.setProperties({
-        voiRange: {
-          lower: 0,
-          upper: 80
-        }
-      });
-      
-      // Lägg till viewport till toolGroup om det inte redan är gjort
-      if (toolGroup && !toolGroup.hasViewport(viewportId)) {
-        console.log("Adding viewport to toolGroup");
-        toolGroup.addViewport(viewportId);
-      }
-      
-      // Rendera viewport
-      console.log("Calling viewport.render()");
-      viewport.render();
-      
-      // Vänta en kort stund och kontrollera om renderingen lyckades
-      setTimeout(() => {
-        const element = axialRef.current;
-        if (element) {
-          // Istället för att försöka hämta canvas-kontext och bilddata,
-          // kontrollera bara om elementet finns och har dimensioner
-          const rect = element.getBoundingClientRect();
-          console.log("Viewport element dimensions:", rect.width, rect.height);
-          console.log("Viewport element is ready:", !!element);
-        }
-      }, 1000);
-
-      setLoading(false);
-      
-    } catch (error) {
-      console.error('Error rendering series:', error);
-      setLoading(false);
-    }
-  };
-
-  const handlePatientSelect = (patient: Patient) => {
-    setSelectedPatientId(patient.patient_id);
-    loadStudies(patient.patient_id);
-  };
+    };
+  }, []);
 
   const toggleMprView = async () => {
     if (!selectedSeriesId || !renderingEngine || !axialRef.current) {
@@ -393,7 +393,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
       if (newMprState) {
         // Växla till MPR-vy (VolumeViewport enligt Cornerstone-dokumentation)
         // Ladda volymen först från servicen
-        const volume = await dicomService.loadVolumeForSeries(selectedSeriesId);
+        // TODO: Implementera loadVolumeForSeries i dicomService
         
         // Skapa VolumeViewport enligt dokumentation
         const viewportId = 'CT_MPR';
@@ -403,7 +403,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
           type: Enums.ViewportType.ORTHOGRAPHIC,
           defaultOptions: {
             orientation: Enums.OrientationAxis.AXIAL,
-            background: [0, 0, 0],
+            background: [0, 0, 0] as [number, number, number],
           },
         };
         
@@ -414,9 +414,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
         const viewport = engine.getViewport(viewportId) as Types.IVolumeViewport;
         
         // Lägg till volymen till viewporten
-        await viewport.setVolumes([
-          { volumeId: volume.volumeId }
-        ]);
+        // TODO: Implementera setVolumes i dicomService
         
         // Ställ in window/level
         viewport.setProperties({
@@ -443,102 +441,307 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
 
   // Funktion för att byta aktivt verktyg
   const handleToolChange = (toolName: string, mouseButton: number) => {
-    if (!toolGroup) return;
-    
-    // Inaktivera alla verktyg först
-    toolButtons.forEach(button => {
-      if (button.toolName !== 'StackScrollTool') {
-        toolGroup.setToolPassive(button.toolName);
-      }
-    });
-    
-    // Aktivera valt verktyg
-    toolGroup.setToolActive(toolName, {
-      bindings: [{ mouseButton }]
-    });
+    if (!renderingEngine) return;
     
     setActiveTool(toolName);
+    
+    // Hämta toolGroup med typkastning
+    const toolGroupInstance = (ToolGroupManager as any).getToolGroup('CT_AXIAL_STACK');
+    if (!toolGroupInstance) return;
+    
+    // Inaktivera alla verktyg först
+    toolButtons.forEach(tool => {
+      toolGroupInstance.setToolPassive(tool.toolName);
+    });
+    
+    // Aktivera det valda verktyget
+    toolGroupInstance.setToolActive(toolName, {
+      bindings: [{ mouseButton }]
+    });
   };
 
+  // Ladda imageIds när seriesId ändras
+  useEffect(() => {
+    if (!selectedSeriesId) {
+      setError('No series selected');
+      setLoading(false);
+      return;
+    }
+
+    const loadImageIds = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        // Hämta imageIds för den valda serien
+        const fetchedImageIds = await dicomService.getImageIds({ seriesId: selectedSeriesId });
+        
+        if (fetchedImageIds.length === 0) {
+          setError('No images found in this series');
+          setLoading(false);
+          return;
+        }
+        
+        setImageIds(fetchedImageIds);
+        
+        // Hämta metadata för första bilden
+        if (fetchedImageIds.length > 0) {
+          const firstImageMetadata = await dicomService.getMetadata(fetchedImageIds[0].sopInstanceUid);
+          setMetadata(firstImageMetadata);
+        }
+        
+        setLoading(false);
+      } catch (error) {
+        console.error('Error loading image IDs:', error);
+        setError('Failed to load images');
+        setLoading(false);
+      }
+    };
+
+    loadImageIds();
+  }, [selectedSeriesId]);
+
+  // Skapa och konfigurera viewport när imageIds har laddats
+  useEffect(() => {
+    if (!axialRef.current || imageIds.length === 0 || loading || error) {
+      return;
+    }
+
+    const setupViewport = async () => {
+      try {
+        // Skapa rendering engine om den inte redan finns
+        const engine = cornerstone.getRenderingEngine('myRenderingEngine') || 
+                       new cornerstone.RenderingEngine('myRenderingEngine');
+        
+        // Använd en funktion för att uppdatera state för att undvika typfel
+        setRenderingEngine(engine as any);
+        
+        // Konfigurera viewport
+        const viewportInput = {
+          viewportId: 'CT_AXIAL_STACK',
+          type: cornerstone.Enums.ViewportType.STACK,
+          element: axialRef.current as HTMLDivElement,
+          defaultOptions: {
+            background: [0, 0, 0] as [number, number, number],
+          },
+        };
+        
+        // Skapa viewport
+        engine.enableElement(viewportInput);
+        
+        // Hämta viewport och typkasta till StackViewport
+        const viewportInstance = engine.getViewport('CT_AXIAL_STACK') as StackViewport;
+        
+        // Skapa en array med bara imageId-strängarna
+        const imageIdStrings = imageIds.map(img => img.imageId);
+        
+        // Sätt stack i viewport med typkastning
+        await viewportInstance.setStack(imageIdStrings);
+        
+        // Skapa toolGroup och aktivera verktyg
+        const toolGroup = dicomService.createToolGroup('CT_AXIAL_STACK', 'myRenderingEngine');
+        
+        // Rendera viewport
+        engine.render();
+        
+      } catch (error) {
+        console.error('Error setting up viewport:', error);
+        setError('Failed to setup viewer');
+      }
+    };
+
+    setupViewport();
+  }, [imageIds, loading, error]);
+
+  // Hantera byte av bild
+  const handleImageChange = useCallback(async (index: number) => {
+    if (index < 0 || index >= imageIds.length || !renderingEngine) {
+      return;
+    }
+    
+    setCurrentImageIndex(index);
+    
+    // Uppdatera viewport till den valda bilden med typkastning
+    const viewport = renderingEngine.getViewport('CT_AXIAL_STACK') as StackViewport;
+    viewport.setImageIdIndex(index);
+    renderingEngine.render();
+    
+    // Hämta metadata för den valda bilden
+    try {
+      const imageMetadata = await dicomService.getMetadata(imageIds[index].sopInstanceUid);
+      setMetadata(imageMetadata);
+    } catch (error) {
+      console.error('Error loading metadata:', error);
+    }
+  }, [imageIds, renderingEngine]);
+
+  // Hantera tangentbordshändelser för att bläddra genom bilder
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+        handleImageChange(currentImageIndex - 1);
+      } else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+        handleImageChange(currentImageIndex + 1);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [currentImageIndex, handleImageChange]);
+
+  // Rendera komponenten
   return (
     <ViewerContainer>
+      <ToolbarContainer>
+        {toolButtons.map(button => (
+          <ToolButton
+            key={button.name}
+            isActive={activeTool === button.toolName}
+            onClick={() => handleToolChange(button.toolName, button.mouseButton)}
+            title={button.label}
+          >
+            {button.icon}
+          </ToolButton>
+        ))}
+      </ToolbarContainer>
+      
       <MainContainer>
         <SidePanel>
-          <ListContainer>
-            <ListTitle>Patients</ListTitle>
+          <h3>Patientlista</h3>
+          <div style={{ maxHeight: '200px', overflowY: 'auto', marginBottom: '20px' }}>
             {patients.map(patient => (
-              <ListItem 
+              <div 
                 key={patient.patient_id}
-                isSelected={patient.patient_id === selectedPatientId}
                 onClick={() => handlePatientSelect(patient)}
+                style={{ 
+                  padding: '8px', 
+                  cursor: 'pointer',
+                  backgroundColor: selectedPatientId === patient.patient_id ? '#2c5282' : 'transparent',
+                  color: selectedPatientId === patient.patient_id ? 'white' : 'inherit',
+                  borderBottom: '1px solid #444'
+                }}
               >
-                {patient.name} ({patient.patient_id})
-              </ListItem>
+                {patient.patient_name}
+              </div>
             ))}
-          </ListContainer>
+          </div>
           
-          <ListContainer>
-            <ListTitle>Studies</ListTitle>
+          <h3>Studier</h3>
+          <div style={{ maxHeight: '200px', overflowY: 'auto', marginBottom: '20px' }}>
             {studies.map(study => (
-              <ListItem
+              <div 
                 key={study.study_instance_uid}
-                isSelected={study.study_instance_uid === selectedStudyId}
                 onClick={() => {
                   setSelectedStudyId(study.study_instance_uid);
                   loadSeries(study.study_instance_uid);
                 }}
+                style={{ 
+                  padding: '8px', 
+                  cursor: 'pointer',
+                  backgroundColor: selectedStudyId === study.study_instance_uid ? '#2c5282' : 'transparent',
+                  color: selectedStudyId === study.study_instance_uid ? 'white' : 'inherit',
+                  borderBottom: '1px solid #444'
+                }}
               >
-                {study.description} ({study.study_date})
-              </ListItem>
+                {study.study_date} - {study.study_description || 'Ingen beskrivning'}
+              </div>
             ))}
-          </ListContainer>
+          </div>
           
-          <ListContainer>
-            <ListTitle>Series</ListTitle>
-            {series.map((series) => {
-              
-              return (
-                <SeriesItem
-                  key={series.series_uid}
-                  isSelected={series.series_uid === selectedSeriesId}
-                  onClick={() => handleSeriesSelect(series.series_uid)}
-                >
-                  <div>Series {series.series_number}</div>
-                  <div>{series.description || 'No description'}</div>
-                </SeriesItem>
-              );
-            })}
-          </ListContainer>
+          <h3>Serier</h3>
+          <div style={{ maxHeight: '200px', overflowY: 'auto', marginBottom: '20px' }}>
+            {series.map(serie => (
+              <div 
+                key={serie.series_uid}
+                onClick={() => handleSeriesSelect(serie.series_uid)}
+                style={{ 
+                  padding: '8px', 
+                  cursor: 'pointer',
+                  backgroundColor: selectedSeriesId === serie.series_uid ? '#2c5282' : 'transparent',
+                  color: selectedSeriesId === serie.series_uid ? 'white' : 'inherit',
+                  borderBottom: '1px solid #444'
+                }}
+              >
+                {serie.series_number} - {serie.description || 'Ingen beskrivning'}
+              </div>
+            ))}
+          </div>
         </SidePanel>
-
-        <ViewerGrid>
-          <ViewerPanel>
-            <ViewerLabel>
-              {loading ? 'Loading...' : 'DICOM-image'}
-            </ViewerLabel>
-            
-            <div
-              ref={axialRef}
-              style={{ width: '100%', height: '100%', position: 'relative' }}
-            />
-            
-            <ToolbarContainer>
-              {toolButtons.map(button => (
-                <ToolButton
-                  key={button.name}
-                  isActive={activeTool === button.toolName}
-                  onClick={() => handleToolChange(button.toolName, button.mouseButton)}
-                  title={button.label}
-                >
-                  {button.icon}
-                </ToolButton>
-              ))}
-              <button onClick={toggleMprView}>
-                {useMprView ? 'Show Stack' : 'Show MPR'}
+        
+        <ViewerPanel>
+          <div 
+            ref={axialRef} 
+            tabIndex={0} 
+            style={{ 
+              width: '100%', 
+              height: '100%', 
+              outline: 'none',
+              background: 'black' // Tydlig svart bakgrund för bildvisning
+            }} 
+          />
+          
+          {loading && (
+            <LoadingOverlay>
+              <div>Laddar DICOM-bilder...</div>
+            </LoadingOverlay>
+          )}
+          
+          {error && (
+            <ErrorOverlay>
+              <div>{error}</div>
+            </ErrorOverlay>
+          )}
+          
+          <ControlsContainer>
+            <ImageControls>
+              <button 
+                onClick={() => handleImageChange(currentImageIndex - 1)}
+                disabled={currentImageIndex <= 0}
+              >
+                Föregående bild
               </button>
-            </ToolbarContainer>
-          </ViewerPanel>
-        </ViewerGrid>
+              <div>Bild {currentImageIndex + 1} / {imageIds.length}</div>
+              <button 
+                onClick={() => handleImageChange(currentImageIndex + 1)}
+                disabled={currentImageIndex >= imageIds.length - 1}
+              >
+                Nästa bild
+              </button>
+            </ImageControls>
+          </ControlsContainer>
+        </ViewerPanel>
+        
+        <InfoPanel>
+          <h3>Serieinformation</h3>
+          {selectedSeriesId && <div>Serie-ID: {selectedSeriesId}</div>}
+          <div>Bilder: {imageIds.length}</div>
+          
+          {metadata && (
+            <MetadataContainer>
+              <h4>Bildmetadata</h4>
+              <MetadataItem>
+                <MetadataLabel>Storlek:</MetadataLabel>
+                <MetadataValue>{metadata.rows} x {metadata.columns}</MetadataValue>
+              </MetadataItem>
+              {metadata.sliceThickness && (
+                <MetadataItem>
+                  <MetadataLabel>Skivtjocklek:</MetadataLabel>
+                  <MetadataValue>{metadata.sliceThickness.toFixed(2)} mm</MetadataValue>
+                </MetadataItem>
+              )}
+              {metadata.pixelSpacing && (
+                <MetadataItem>
+                  <MetadataLabel>Pixelavstånd:</MetadataLabel>
+                  <MetadataValue>
+                    {metadata.pixelSpacing[0].toFixed(2)} x {metadata.pixelSpacing[1].toFixed(2)} mm
+                  </MetadataValue>
+                </MetadataItem>
+              )}
+            </MetadataContainer>
+          )}
+        </InfoPanel>
       </MainContainer>
     </ViewerContainer>
   );

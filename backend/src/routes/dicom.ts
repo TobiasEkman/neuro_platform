@@ -311,23 +311,47 @@ router.post('/import', async (req: Request, res: Response) => {
 
 router.get('/patients', async (req: Request, res: Response) => {
   try {
-    const response = await axios.get(`${IMAGING_SERVICE_URL}/patients`);
+    console.log('[Backend DICOM Route] Fetching patients from imaging service');
+    
+    const response = await axios.get(`${IMAGING_SERVICE_URL}/api/dicom/patients`);
+    
     res.json(response.data);
   } catch (err) {
+    console.error('Error fetching patients:', err);
     handleServiceError(err, res);
   }
 });
 
-// Hämta imageIds för Cornerstone
+// Kontrollera att imageIds-rutten vidarebefordrar parametrarna korrekt
 router.get('/imageIds', async (req: Request, res: Response) => {
   try {
     console.log('[Backend] Fetching imageIds with params:', req.query);
-    const response = await axios.get(`${IMAGING_SERVICE_URL}/api/dicom/imageIds`, {
+    console.log('[Backend] seriesId:', req.query.seriesId);
+    console.log('[Backend] studyId:', req.query.studyId);
+    
+    // Kontrollera att params är korrekta
+    if (!req.query.seriesId && !req.query.studyId) {
+      console.error('[Backend] Missing required parameters');
+    }
+    
+    // Logga URL som kommer att anropas
+    const url = `${IMAGING_SERVICE_URL}/api/dicom/imageIds`;
+    console.log('[Backend] Calling URL:', url);
+    console.log('[Backend] With params:', req.query);
+    
+    const response = await axios.get(url, {
       params: req.query
     });
+    
+    console.log('[Backend] Response status:', response.status);
     console.log('[Backend] Found imageIds:', response.data.length);
+    
     res.json(response.data);
-  } catch (err) {
+  } catch (err: unknown) {
+    console.error('[Backend] Error fetching imageIds:', err);
+    if (axios.isAxiosError(err) && err.response) {
+      console.error('[Backend] Error response:', err.response.data);
+    }
     handleServiceError(err, res);
   }
 });

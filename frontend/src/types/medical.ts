@@ -97,9 +97,7 @@ export interface DicomSeries {
   series_number: string;
   description: string;
   modality: string;
-  instances: DicomInstance[];
-  series_uid: string;  // Samma som series_uid
-  filePath: string;    // Sökväg till serien
+  instances: any[];
 }
 
 export interface DicomImage {
@@ -119,15 +117,10 @@ export interface DicomImage {
 export interface DicomStudy {
   study_instance_uid: string;
   study_date: string;
-  description: string;
-  modality?: string;
-  series: DicomSeries[];
-  _id: string;
+  study_time?: string;
+  study_description?: string;
+  accession_number?: string;
   patient_id: string;
-  patient_name?: string;
-  modalities: string[];  // Array av modaliteter
-  num_series: number;    // Antal serier
-  num_instances: number; // Antal instanser
 }
 
 export interface SearchResult {
@@ -181,7 +174,7 @@ export interface WindowPreset {
 
 export interface DicomPatientSummary {
   patient_id: string;
-  name?: string;
-  _id?: string;
-  studies?: string[];
+  patient_name: string;
+  birth_date?: string;
+  sex?: string;
 } 

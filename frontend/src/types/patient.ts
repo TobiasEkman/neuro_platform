@@ -1,13 +1,9 @@
 export interface Patient {
-  _id: string;
   patient_id: string;
-  name: string;
-  age: number;
-  gender: string;
-  diagnosis: string;
-  admission_date?: string;
-  discharge_date?: string;
-  studies?: Study[];
+  patient_name: string;
+  age?: number;
+  gender?: string;
+  diagnosis?: string;
 }
 
 export interface Study {

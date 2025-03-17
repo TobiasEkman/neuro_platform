@@ -12,27 +12,58 @@ import { logger } from '../utils/logger';
 import * as cornerstone from '@cornerstonejs/core';
 import * as csTools from '@cornerstonejs/tools';
 
-import * as cornerstoneDICOMImageLoader from '@cornerstonejs/dicom-image-loader';
+// Importera dicom-image-loader med typkastning för att hantera saknade properties
+import * as dicomImageLoaderModule from '@cornerstonejs/dicom-image-loader';
 
-// Använd typassertioner för att få verktygen
+// Typkasta dicomImageLoader för att hantera saknade properties i typdeklarationen
+const cornerstoneDICOMImageLoader = dicomImageLoaderModule as any;
+
+// Använd typassertioner för att få verktygen och funktioner
 const toolsInit = (csTools as any).init;
 const addTool = (csTools as any).addTool;
-const StackScrollTool = (csTools as any).StackScrollTool;
-const ZoomTool = (csTools as any).ZoomTool;
-const PanTool = (csTools as any).PanTool;
-const WindowLevelTool = (csTools as any).WindowLevelTool;
+const ToolGroupManager = (csTools as any).ToolGroupManager;
+
+// Typkasta cornerstone för att hantera saknade properties
+const cornerstoneImageLoader = cornerstone as any;
+
+// Definiera verktygsnamn som konstanter
+const TOOL_NAMES = {
+  STACK_SCROLL: 'StackScrollMouseWheelTool',
+  WINDOW_LEVEL: 'WindowLevelTool',
+  ZOOM: 'ZoomTool',
+  PAN: 'PanTool',
+  LENGTH: 'LengthTool'
+};
+
+// Typer för Cornerstone
+const { 
+  Enums: csEnums, 
+  volumeLoader, 
+  setVolumesForViewports, 
+  cache 
+} = cornerstone;
+
+export interface DicomImageId {
+  imageId: string;
+  sopInstanceUid: string;
+  seriesInstanceUid: string;
+  studyInstanceUid: string;
+  instanceNumber: number;
+  filePath: string;
+}
 
 export interface DicomMetadata {
-  patientId: string;
-  studyInstanceUID: string;
-  seriesInstanceUID: string;
-  sopInstanceUID?: string;
-  modality: string;
-  studyDate?: string;
-  seriesNumber?: number;
-  seriesDescription?: string;
-  filePath: string;
-  metadata?: Record<string, any>;
+  studyInstanceUid: string;
+  seriesInstanceUid: string;
+  sopInstanceUid: string;
+  rows: number;
+  columns: number;
+  pixelSpacing: number[];
+  sliceThickness: number;
+  sliceLocation: number;
+  instanceNumber: number;
+  windowCenter: number;
+  windowWidth: number;
 }
 
 interface CustomLoaderOptions {
@@ -63,9 +94,184 @@ interface DicomImageLoaderOptions {
 
 export class DicomService {
   private baseUrl: string;
+  private initialized: boolean = false;
+  private toolGroup: any = null;
 
   constructor() {
     this.baseUrl = '/api/dicom';
+  }
+
+  /**
+   * Initierar Cornerstone3D och dess verktyg
+   */
+  async initialize(): Promise<void> {
+    if (this.initialized) {
+      return;
+    }
+
+    try {
+      console.log('[DicomService] Initializing Cornerstone3D...');
+      
+      // Initiera Cornerstone
+      await cornerstone.init();
+      
+      // Initiera verktyg
+      await toolsInit();
+      
+      // Konfigurera DICOM Image Loader
+      cornerstoneDICOMImageLoader.external.cornerstone = cornerstone;
+      cornerstoneDICOMImageLoader.external.dicomParser = (window as any).dicomParser;
+      
+      // Konfigurera webworkers för bildladdning
+      const config = {
+        maxWebWorkers: navigator.hardwareConcurrency || 4,
+        startWebWorkersOnDemand: true,
+      };
+      
+      cornerstoneDICOMImageLoader.webWorkerManager.initialize(config);
+      
+      // Registrera DICOM-bildladdare med typkastning
+      cornerstoneImageLoader.imageLoader.registerImageLoader(
+        'wadouri',
+        cornerstoneDICOMImageLoader.wadouri.loadImage
+      );
+      
+      // Registrera verktyg
+      // Här använder vi verktygsnamn istället för direkta importer
+      this.registerTools();
+      
+      console.log('[DicomService] Cornerstone3D initialized successfully');
+      this.initialized = true;
+    } catch (error) {
+      console.error('[DicomService] Failed to initialize Cornerstone3D:', error);
+      throw new Error('Failed to initialize DICOM viewer');
+    }
+  }
+
+  /**
+   * Registrerar verktyg i Cornerstone
+   */
+  private registerTools(): void {
+    try {
+      // Hämta verktyg från csTools
+      const tools = csTools as any;
+      
+      // Registrera verktyg
+      addTool(tools.StackScrollMouseWheelTool);
+      addTool(tools.WindowLevelTool);
+      addTool(tools.ZoomTool);
+      addTool(tools.PanTool);
+      addTool(tools.LengthTool);
+      
+      console.log('[DicomService] Tools registered successfully');
+    } catch (error) {
+      console.error('[DicomService] Failed to register tools:', error);
+      throw new Error('Failed to register tools');
+    }
+  }
+
+  /**
+   * Skapar en toolGroup för en viewport
+   */
+  createToolGroup(viewportId: string, renderingEngineId: string): any {
+    if (!this.initialized) {
+      throw new Error('Cornerstone not initialized. Call initialize() first.');
+    }
+
+    // Skapa en toolGroup
+    this.toolGroup = ToolGroupManager.createToolGroup(viewportId);
+    
+    // Lägg till verktyg i toolGroup
+    this.toolGroup.addTool(TOOL_NAMES.STACK_SCROLL);
+    this.toolGroup.addTool(TOOL_NAMES.WINDOW_LEVEL);
+    this.toolGroup.addTool(TOOL_NAMES.ZOOM);
+    this.toolGroup.addTool(TOOL_NAMES.PAN);
+    this.toolGroup.addTool(TOOL_NAMES.LENGTH);
+    
+    // Aktivera scrollhjul för stack navigation
+    this.toolGroup.setToolActive(TOOL_NAMES.STACK_SCROLL);
+    
+    // Aktivera window/level som standard verktyg
+    this.toolGroup.setToolActive(TOOL_NAMES.WINDOW_LEVEL, {
+      bindings: [{ mouseButton: 1 }],
+    });
+    
+    return this.toolGroup;
+  }
+
+  /**
+   * Aktiverar ett verktyg i toolGroup
+   */
+  setToolActive(toolName: string): void {
+    if (!this.toolGroup) {
+      throw new Error('No tool group created. Call createToolGroup() first.');
+    }
+    
+    // Inaktivera alla verktyg först
+    this.toolGroup.setToolPassive(TOOL_NAMES.WINDOW_LEVEL);
+    this.toolGroup.setToolPassive(TOOL_NAMES.ZOOM);
+    this.toolGroup.setToolPassive(TOOL_NAMES.PAN);
+    this.toolGroup.setToolPassive(TOOL_NAMES.LENGTH);
+    
+    // Aktivera det valda verktyget
+    this.toolGroup.setToolActive(toolName, {
+      bindings: [{ mouseButton: 1 }],
+    });
+  }
+
+  /**
+   * Hämtar imageIds för en serie
+   */
+  async getImageIds(params: { studyId?: string; seriesId?: string }): Promise<DicomImageId[]> {
+    try {
+      console.log('[DicomService] Fetching imageIds with params:', JSON.stringify(params));
+      
+      // Kontrollera att params är ett objekt
+      if (typeof params !== 'object' || params === null) {
+        console.error('[DicomService] Invalid params:', params);
+        params = {};
+      }
+      
+      // Kontrollera att seriesId finns
+      if (!params.seriesId) {
+        console.error('[DicomService] seriesId is missing in params');
+      }
+      
+      // Logga URL och params
+      const url = `${this.baseUrl}/imageIds`;
+      console.log('[DicomService] Calling URL:', url);
+      console.log('[DicomService] With params:', params);
+      
+      const response = await axios.get(url, { params });
+      
+      console.log('[DicomService] Response status:', response.status);
+      console.log('[DicomService] Response data length:', response.data.length);
+      
+      return response.data;
+    } catch (error: unknown) {
+      console.error('[DicomService] Error fetching imageIds:', error);
+      if (error instanceof Error) {
+        console.error('[DicomService] Error message:', error.message);
+      }
+      if (axios.isAxiosError(error) && error.response) {
+        console.error('[DicomService] Error response:', error.response.data);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Hämtar metadata för en DICOM-instans
+   */
+  async getMetadata(sopInstanceUid: string): Promise<DicomMetadata> {
+    try {
+      console.log('[DicomService] Fetching metadata for:', sopInstanceUid);
+      const response = await axios.get(`${this.baseUrl}/metadata/${sopInstanceUid}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error getting metadata:', error);
+      throw this.handleError(error, 'Failed to get metadata');
+    }
   }
 
   // Main folder parsing method
@@ -238,43 +444,35 @@ export class DicomService {
     }
   }
 
+  /**
+   * Hämtar serier för en studie
+   */
   async getSeriesForStudy(studyId: string): Promise<DicomSeries[]> {
     try {
-      const response = await axios.get(`${this.baseUrl}/series`, {
-        params: { studyId }
+      console.log('[DicomService] Fetching series for study:', studyId);
+      const response = await axios.get(`${this.baseUrl}/series`, { 
+        params: { studyId } 
       });
-      return response.data.map((series: any) => ({
-        id: series.series_uid,
-        description: series.description || 'Untitled Series',
-        modality: series.modality,
-        numImages: series.number_of_images,
-        studyInstanceUID: series.study_instance_uid,
-        seriesInstanceUID: series.series_uid,
-        metadata: series.metadata
-      }));
+      return response.data;
     } catch (error) {
-      throw this.handleError(error, 'Failed to fetch series for study');
+      console.error('Error getting series for study:', error);
+      throw this.handleError(error, 'Failed to get series');
     }
   }
 
-  // Get studies for a patient
+  /**
+   * Hämtar studier för en patient
+   */
   async getStudiesForPatient(patientId: string): Promise<DicomStudy[]> {
     try {
-      const response = await axios.get(`${this.baseUrl}/studies`, {
-        params: { patientId }
+      console.log('[DicomService] Fetching studies for patient:', patientId);
+      const response = await axios.get(`${this.baseUrl}/studies`, { 
+        params: { patientId } 
       });
-
-      // Validera data men returnera utan konvertering
-      if (!response.data || !Array.isArray(response.data)) {
-        console.error('Invalid response data:', response.data);
-        return [];
-      }
-
-      return response.data
-        .filter(study => study && typeof study === 'object');
+      return response.data;
     } catch (error) {
-      console.error('Failed to fetch studies:', error);
-      throw this.handleError(error, 'Failed to fetch studies');
+      console.error('Error getting studies for patient:', error);
+      throw this.handleError(error, 'Failed to get studies');
     }
   }
 
@@ -307,221 +505,6 @@ export class DicomService {
     }
   }
 
-  // Ersätt befintliga getImageIds-metoder med denna centraliserade metod
-  async getImageIds(options: { studyId?: string; seriesId?: string }): Promise<string[]> {
-    try {
-      console.log('[DicomService] Fetching imageIds with options:', options);
-      const response = await axios.get(`${this.baseUrl}/imageIds`, { params: options });
-      
-      // Returnerar imageIds direkt från API:et 
-      // (dessa är redan i wadouri: format från backend)
-      return response.data.map((item: any) => item.imageId);
-    } catch (error) {
-      console.error('Error getting image IDs:', error);
-      throw this.handleError(error, 'Failed to get image IDs');
-    }
-  }
-
-  // Registrera WebWorker med WebWorkerManager
-  registerCornerstoneWorker(): boolean {
-    try {
-      // Hämta WebWorkerManager från Cornerstone
-      const webWorkerManager = cornerstone.getWebWorkerManager();
-      
-      if (!webWorkerManager) {
-        console.warn('[DicomService] WebWorkerManager not available in this version of Cornerstone');
-        return false;
-      }
-      
-      // Skapa en WebWorker-funktion enligt dokumentationen
-      const workerFn = () => {
-        return new Worker(
-          new URL('/cornerstone-worker.js', window.location.origin),
-          { name: 'cornerstoneWorker' }
-        );
-      };
-      
-      // Registrera arbetaren med WebWorkerManager enligt dokumentationen
-      webWorkerManager.registerWorker('cornerstoneImageLoader', workerFn, {
-        maxWorkerInstances: navigator.hardwareConcurrency || 2,
-        autoTerminateOnIdle: { enabled: true, idleTimeThreshold: 60000 }
-      });
-      
-      console.log('[DicomService] WebWorker registered with WebWorkerManager');
-      return true;
-    } catch (error) {
-      console.error('[DicomService] Failed to register WebWorker:', error);
-      return false;
-    }
-  }
-
-  // Exekvera en WebWorker-task
-  async executeWorkerTask(methodName: string, args: any) {
-    try {
-      const webWorkerManager = cornerstone.getWebWorkerManager();
-      if (!webWorkerManager) {
-        throw new Error('WebWorkerManager not available');
-      }
-      
-      return await webWorkerManager.executeTask(
-        'cornerstoneImageLoader', 
-        methodName, 
-        args,
-        {
-          callbacks: [
-            (progress: any) => {
-              console.debug('WebWorker progress:', progress);
-            },
-          ],
-        }
-      );
-    } catch (error) {
-      console.error(`[DicomService] Failed to execute worker task ${methodName}:`, error);
-      throw error;
-    }
-  }
-
-  // Uppdatera anropet till this.registerCornerstoneWorker()
-  async initializeDICOMImageLoader(): Promise<void> {
-    try {
-      const loader = cornerstoneDICOMImageLoader;
-      
-      // Använd vår egen worker med explicit typning
-      (cornerstoneDICOMImageLoader as any).init({
-        maxWebWorkers: navigator.hardwareConcurrency || 1,
-        webWorkerPath: '/cornerstone-worker.js',
-        taskConfiguration: {
-          decodeTask: {
-            codecsPath: '/cornerstone-worker.js',
-          },
-        }
-      } as DicomImageLoaderOptions);
-
-      // Registrera vår anpassade worker med WebWorkerManager
-      this.registerCornerstoneWorker();
-
-      // Säkerställ att cornerstone är tillgängligt innan vi sätter det
-      if (cornerstone) {
-        // Använd type assertion för att hantera externa properties
-        (loader as any).external = {};
-        (loader as any).external.cornerstone = cornerstone;
-        
-        // Registrera WADO-URI utan argument
-        loader.wadouri.register();
-      } else {
-        throw new Error('Cornerstone is not initialized');
-      }
-
-      console.log('[DicomService] DICOM Image Loader initialized');
-    } catch (error) {
-      console.error('Error initializing DICOM Image Loader:', error);
-      throw error;
-    }
-  }
-
-  // Hämta metdata för en specifik SOP-instans
-  async getInstanceMetadata(sopInstanceUid: string): Promise<any> {
-    try {
-      const response = await axios.get(`${this.baseUrl}/metadata/${sopInstanceUid}`);
-      return response.data;
-    } catch (error) {
-      throw this.handleError(error, 'Failed to get instance metadata');
-    }
-  }
-
-  // Registrera metadata provider för Cornerstone
-  registerMetadataProvider() {
-    cornerstone.metaData.addProvider((type: string, imageId: string) => {
-      // Extrahera sopInstanceUid från imageId
-      const sopInstanceUid = imageId.substring(imageId.lastIndexOf('/') + 1);
-      
-      // Returnera direkt från cache om det finns
-      // Annars hämtas det genom API:et när det behövs
-      return null; // Låt Cornerstone begära metadata on-demand
-    });
-  }
-
-  // Uppdaterad initialize-metod för att inkludera DICOM Image Loader
-  async initialize() {
-    console.log("[DicomService] Starting initialization...");
-    
-    // Initiera Cornerstone3D
-    console.log("[DicomService] Initializing Cornerstone3D...");
-    await cornerstone.init();
-    
-    console.log("[DicomService] Initializing tools...");
-    await toolsInit();
-    
-    // Registrera verktyg globalt
-    console.log("[DicomService] Registering tools...");
-    this.registerTools();
-    
-    // Initiera DICOM Image Loader
-    console.log("[DicomService] Initializing DICOM Image Loader...");
-    await this.initializeDICOMImageLoader();
-    
-    // Registrera metadata provider
-    console.log("[DicomService] Registering metadata provider...");
-    this.registerMetadataProvider();
-    
-    console.log('[DicomService] Initialization complete');
-  }
-
-  // Ny metod för att registrera verktyg globalt
-  registerTools() {
-    try {
-      // Registrera verktyg globalt med addTool (separata anrop)
-      addTool(StackScrollTool);
-      addTool(ZoomTool);
-      addTool(PanTool);
-      addTool(WindowLevelTool);
-      
-      console.log('[DicomService] Verktyg registrerade globalt');
-      return true;
-    } catch (error) {
-      console.error('[DicomService] Fel vid registrering av verktyg:', error);
-      return false;
-    }
-  }
-
-  // Ersätt den befintliga loadVolumeForSeries med denna
-  async loadVolumeForSeries(seriesId: string): Promise<cornerstone.Types.IImageVolume> {
-    try {
-      // Hämta imageIds med den nya metoden
-      const imageIds = await this.getImageIds({ seriesId });
-      
-      if (imageIds.length === 0) {
-        throw new Error('No images found for series');
-      }
-      
-      console.log(`[DicomService] Creating volume for ${imageIds.length} images`);
-      
-      // Skapa en volym med Cornerstone3D
-      const volumeId = `volume-${seriesId}`;
-      
-      // Använd 'any' för att helt kringgå typkontrollen
-      const volumeOptions = {
-        imageIds,
-        dimensions: [512, 512, imageIds.length],
-        spacing: [1, 1, 1],
-        orientation: [1, 0, 0, 0, 1, 0, 0, 0, 1]
-      } as any;
-      
-      // Skapa volymen
-      const volume = await cornerstone.volumeLoader.createAndCacheVolume(
-        volumeId,
-        volumeOptions
-      );
-      
-      // Starta laddningen av volymen
-      await volume.load();
-      
-      return volume;
-    } catch (error) {
-      throw this.handleError(error, 'Failed to load volume');
-    }
-  }
-
   // Analysera DICOM-katalog utan att spara till databasen
   async analyzeDicomDirectory(
     directoryPath: string, 
@@ -550,7 +533,12 @@ export class DicomService {
   // Hämta alla patienter
   async getAllPatients(): Promise<DicomPatientSummary[]> {
     try {
+      console.log('[DicomService] Fetching all patients');
       const response = await axios.get(`${this.baseUrl}/patients`);
+      
+      // Logga svaret för debugging
+      console.log('[DicomService] Patients response:', response.data);
+      
       return response.data;
     } catch (error) {
       console.error('Error fetching patients:', error);

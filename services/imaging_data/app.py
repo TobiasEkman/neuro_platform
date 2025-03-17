@@ -158,15 +158,59 @@ def health_check():
         print("[Flask] Error in health check:", str(e))
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/dicom/patients', methods=['GET'])
+def get_patients():
+    """Hämta alla patienter från MongoDB"""
+    try:
+        # Hämta patienter från MongoDB
+        patients = list(db.patients.find())
+        
+        # Konvertera ObjectId till string för JSON-serialisering
+        for patient in patients:
+            if '_id' in patient:
+                patient['_id'] = str(patient['_id'])
+        
+        # Konvertera till DicomPatientSummary-format
+        formatted_patients = []
+        for patient in patients:
+            formatted_patients.append({
+                "patient_id": patient.get("patient_id"),
+                "patient_name": patient.get("name", "Anonymous"),
+                "birth_date": patient.get("dob", ""),
+                "sex": patient.get("gender", "")
+            })
+        
+        return jsonify(formatted_patients)
+    except Exception as e:
+        app.logger.error(f"Error getting patients: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+    
 @app.route('/api/dicom/series/<series_id>', methods=['GET'])
 def get_series_by_series_id(series_id):
     try:
-        # Hämta specifik serie
+        logger.info(f"Hämtar serie med ID: {series_id}")
+        
+        # Sök i studies-collection först
+        for study in db.studies.find({}, {'_id': 0}):
+            for series in study.get('series', []):
+                if series.get('series_uid') == series_id:
+                    logger.info(f"Hittade serie i studies-collection")
+                    return jsonify(series)
+        
+        # Om serien inte hittades i studies-collection, sök i series-collection
         series = db.series.find_one({'series_uid': series_id})
-        if not series:
-            return jsonify({'error': 'Series not found'}), 404
-        return jsonify(series)
+        if series:
+            logger.info(f"Hittade serie i series-collection")
+            # Konvertera ObjectId till string för JSON-serialisering
+            if '_id' in series:
+                series['_id'] = str(series['_id'])
+            return jsonify(series)
+        
+        # Om vi kommer hit har vi inte hittat serien
+        logger.warning(f"Serie med ID {series_id} hittades inte")
+        return jsonify({'error': 'Series not found'}), 404
     except Exception as e:
+        logger.error(f"Error getting series: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/dicom/series', methods=['GET'])
@@ -423,7 +467,10 @@ def get_instance(sop_instance_uid):
 
 @app.route('/api/dicom/metadata/<sop_instance_uid>', methods=['GET'])
 def get_metadata(sop_instance_uid):
+    """Hämta metadata för en DICOM-instans"""
     try:
+        logger.info(f"Hämtar metadata för SOP Instance UID: {sop_instance_uid}")
+        
         # Sök genom alla studier för att hitta instansen
         for study in db.studies.find({}, {'_id': 0}):
             for series in study.get('series', []):
@@ -438,50 +485,160 @@ def get_metadata(sop_instance_uid):
                             instance_obj[key] = value
                         
                         if instance_obj.get('sop_instance_uid') == sop_instance_uid:
-                            # Här skulle vi hämta metadata från DICOM-filen
+                            # Hitta filen och läs metadata
                             file_path = instance_obj.get('file_path')
                             if file_path and os.path.exists(file_path):
-                                # Läs DICOM-filen och returnera metadata
-                                ds = pydicom.dcmread(file_path)
-                                metadata = {
-                                    'studyInstanceUid': study.get('study_instance_uid'),
-                                    'seriesInstanceUid': series.get('series_uid'),
-                                    'sopInstanceUid': sop_instance_uid,
-                                    'rows': ds.Rows if hasattr(ds, 'Rows') else None,
-                                    'columns': ds.Columns if hasattr(ds, 'Columns') else None,
-                                    'pixelSpacing': ds.PixelSpacing if hasattr(ds, 'PixelSpacing') else None,
-                                    'sliceThickness': ds.SliceThickness if hasattr(ds, 'SliceThickness') else None,
-                                    'sliceLocation': ds.SliceLocation if hasattr(ds, 'SliceLocation') else None,
-                                    'instanceNumber': ds.InstanceNumber if hasattr(ds, 'InstanceNumber') else None,
-                                    # Lägg till fler metadata-fält efter behov
-                                }
-                                return jsonify(metadata)
+                                try:
+                                    # Läs DICOM-filen
+                                    ds = pydicom.dcmread(file_path)
+                                    
+                                    # Extrahera metadata
+                                    metadata = {
+                                        'studyInstanceUid': study.get('study_instance_uid', study.get('study_uid', '')),
+                                        'seriesInstanceUid': series.get('series_uid', ''),
+                                        'sopInstanceUid': sop_instance_uid,
+                                        'rows': int(ds.get('Rows', 0)),
+                                        'columns': int(ds.get('Columns', 0)),
+                                    }
+                                    
+                                    # Hantera pixel spacing (kan vara MultiValue)
+                                    try:
+                                        if hasattr(ds, 'PixelSpacing'):
+                                            # Konvertera varje element till float
+                                            pixel_spacing = [float(x) for x in ds.PixelSpacing]
+                                            metadata['pixelSpacing'] = pixel_spacing
+                                    except Exception as e:
+                                        logger.warning(f"Kunde inte konvertera PixelSpacing: {e}")
+                                    
+                                    # Hantera slice thickness (kan vara MultiValue)
+                                    try:
+                                        if hasattr(ds, 'SliceThickness'):
+                                            metadata['sliceThickness'] = float(ds.SliceThickness)
+                                    except Exception as e:
+                                        logger.warning(f"Kunde inte konvertera SliceThickness: {e}")
+                                    
+                                    # Hantera slice location (kan vara MultiValue)
+                                    try:
+                                        if hasattr(ds, 'SliceLocation'):
+                                            metadata['sliceLocation'] = float(ds.SliceLocation)
+                                    except Exception as e:
+                                        logger.warning(f"Kunde inte konvertera SliceLocation: {e}")
+                                    
+                                    # Hantera instance number
+                                    try:
+                                        if hasattr(ds, 'InstanceNumber'):
+                                            metadata['instanceNumber'] = int(ds.InstanceNumber)
+                                    except Exception as e:
+                                        logger.warning(f"Kunde inte konvertera InstanceNumber: {e}")
+                                        metadata['instanceNumber'] = int(instance_obj.get('instance_number', 0))
+                                    
+                                    # Hantera window center och width (kan vara MultiValue)
+                                    try:
+                                        if hasattr(ds, 'WindowCenter'):
+                                            # Om det är en lista, ta första värdet
+                                            if isinstance(ds.WindowCenter, list) or hasattr(ds.WindowCenter, '__iter__'):
+                                                metadata['windowCenter'] = float(ds.WindowCenter[0])
+                                            else:
+                                                metadata['windowCenter'] = float(ds.WindowCenter)
+                                    except Exception as e:
+                                        logger.warning(f"Kunde inte konvertera WindowCenter: {e}")
+                                    
+                                    try:
+                                        if hasattr(ds, 'WindowWidth'):
+                                            # Om det är en lista, ta första värdet
+                                            if isinstance(ds.WindowWidth, list) or hasattr(ds.WindowWidth, '__iter__'):
+                                                metadata['windowWidth'] = float(ds.WindowWidth[0])
+                                            else:
+                                                metadata['windowWidth'] = float(ds.WindowWidth)
+                                    except Exception as e:
+                                        logger.warning(f"Kunde inte konvertera WindowWidth: {e}")
+                                    
+                                    return jsonify(metadata)
+                                except Exception as e:
+                                    logger.error(f"Error reading DICOM file: {e}")
+                                    return jsonify({'error': f'Error reading DICOM file: {str(e)}'}), 500
                     else:
                         # Om instance är ett objekt
                         if instance.get('sop_instance_uid') == sop_instance_uid:
                             file_path = instance.get('file_path')
                             if file_path and os.path.exists(file_path):
-                                # Läs DICOM-filen och returnera metadata
-                                ds = pydicom.dcmread(file_path)
-                                metadata = {
-                                    'studyInstanceUid': study.get('study_instance_uid'),
-                                    'seriesInstanceUid': series.get('series_uid'),
-                                    'sopInstanceUid': sop_instance_uid,
-                                    'rows': ds.Rows if hasattr(ds, 'Rows') else None,
-                                    'columns': ds.Columns if hasattr(ds, 'Columns') else None,
-                                    'pixelSpacing': ds.PixelSpacing if hasattr(ds, 'PixelSpacing') else None,
-                                    'sliceThickness': ds.SliceThickness if hasattr(ds, 'SliceThickness') else None,
-                                    'sliceLocation': ds.SliceLocation if hasattr(ds, 'SliceLocation') else None,
-                                    'instanceNumber': ds.InstanceNumber if hasattr(ds, 'InstanceNumber') else None,
-                                    # Lägg till fler metadata-fält efter behov
-                                }
-                                return jsonify(metadata)
+                                try:
+                                    # Läs DICOM-filen
+                                    ds = pydicom.dcmread(file_path)
+                                    
+                                    # Extrahera metadata
+                                    metadata = {
+                                        'studyInstanceUid': study.get('study_instance_uid', study.get('study_uid', '')),
+                                        'seriesInstanceUid': series.get('series_uid', ''),
+                                        'sopInstanceUid': sop_instance_uid,
+                                        'rows': int(ds.get('Rows', 0)),
+                                        'columns': int(ds.get('Columns', 0)),
+                                    }
+                                    
+                                    # Hantera pixel spacing (kan vara MultiValue)
+                                    try:
+                                        if hasattr(ds, 'PixelSpacing'):
+                                            # Konvertera varje element till float
+                                            pixel_spacing = [float(x) for x in ds.PixelSpacing]
+                                            metadata['pixelSpacing'] = pixel_spacing
+                                    except Exception as e:
+                                        logger.warning(f"Kunde inte konvertera PixelSpacing: {e}")
+                                    
+                                    # Hantera slice thickness (kan vara MultiValue)
+                                    try:
+                                        if hasattr(ds, 'SliceThickness'):
+                                            metadata['sliceThickness'] = float(ds.SliceThickness)
+                                    except Exception as e:
+                                        logger.warning(f"Kunde inte konvertera SliceThickness: {e}")
+                                    
+                                    # Hantera slice location (kan vara MultiValue)
+                                    try:
+                                        if hasattr(ds, 'SliceLocation'):
+                                            metadata['sliceLocation'] = float(ds.SliceLocation)
+                                    except Exception as e:
+                                        logger.warning(f"Kunde inte konvertera SliceLocation: {e}")
+                                    
+                                    # Hantera instance number
+                                    try:
+                                        if hasattr(ds, 'InstanceNumber'):
+                                            metadata['instanceNumber'] = int(ds.InstanceNumber)
+                                    except Exception as e:
+                                        logger.warning(f"Kunde inte konvertera InstanceNumber: {e}")
+                                        metadata['instanceNumber'] = int(instance.get('instance_number', 0))
+                                    
+                                    # Hantera window center och width (kan vara MultiValue)
+                                    try:
+                                        if hasattr(ds, 'WindowCenter'):
+                                            # Om det är en lista, ta första värdet
+                                            if isinstance(ds.WindowCenter, list) or hasattr(ds.WindowCenter, '__iter__'):
+                                                metadata['windowCenter'] = float(ds.WindowCenter[0])
+                                            else:
+                                                metadata['windowCenter'] = float(ds.WindowCenter)
+                                    except Exception as e:
+                                        logger.warning(f"Kunde inte konvertera WindowCenter: {e}")
+                                    
+                                    try:
+                                        if hasattr(ds, 'WindowWidth'):
+                                            # Om det är en lista, ta första värdet
+                                            if isinstance(ds.WindowWidth, list) or hasattr(ds.WindowWidth, '__iter__'):
+                                                metadata['windowWidth'] = float(ds.WindowWidth[0])
+                                            else:
+                                                metadata['windowWidth'] = float(ds.WindowWidth)
+                                    except Exception as e:
+                                        logger.warning(f"Kunde inte konvertera WindowWidth: {e}")
+                                    
+                                    return jsonify(metadata)
+                                except Exception as e:
+                                    logger.error(f"Error reading DICOM file: {e}")
+                                    return jsonify({'error': f'Error reading DICOM file: {str(e)}'}), 500
         
         # Om vi kommer hit har vi inte hittat instansen
         return jsonify({'error': f'Instance with SOP UID {sop_instance_uid} not found'}), 404
     except Exception as e:
         logger.error(f"Error getting metadata: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+
 
 if __name__ == '__main__':
     print("\nStarting Flask server...")

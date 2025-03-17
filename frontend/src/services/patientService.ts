@@ -109,12 +109,4 @@ export const patientService = {
     };
   },
 
-  bulkUpdatePatients: async (patients: PatientData[]): Promise<void> => {
-    try {
-      await axios.post(`${baseUrl}/patients/bulk`, { patients });
-    } catch (error) {
-      console.error('Error bulk updating patients:', error);
-      throw error;
-    }
-  }
 }; 

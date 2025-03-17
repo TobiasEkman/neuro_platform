@@ -2,25 +2,94 @@ import styled from 'styled-components';
 
 export const ViewerContainer = styled.div`
   display: flex;
+  flex-direction: column;
   height: 100vh;
+  width: 100%;
+  background-color: #1e1e1e;
+  color: white;
+`;
+
+export const ToolbarContainer = styled.div`
+  display: flex;
+  gap: 5px;
+  padding: 8px;
+  background-color: #333;
+  border-bottom: 1px solid #555;
 `;
 
 export const MainContainer = styled.div`
   display: flex;
   flex: 1;
-  margin-left: 60px; // Plats för huvudmenyn
+  overflow: hidden;
 `;
 
 export const SidePanel = styled.div`
+  width: 250px;
+  min-width: 250px;
+  height: 100%;
+  overflow-y: auto;
+  background: #2d2d2d;
+  padding: 1rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  width: 300px;
-  min-width: 300px;
+  border-right: 1px solid #444;
+`;
+
+export const ViewerPanel = styled.div`
+  position: relative;
+  flex: 1;
+  background: black;
+  display: flex;
+  flex-direction: column;
+`;
+
+export const InfoPanel = styled.div`
+  width: 250px;
+  min-width: 250px;
+  height: 100%;
   overflow-y: auto;
-  background: ${props => props.theme.colors.background.secondary};
-  border-radius: 8px;
+  background: #2d2d2d;
   padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  border-left: 1px solid #444;
+`;
+
+export const ControlsContainer = styled.div`
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 10px;
+  display: flex;
+  justify-content: center;
+`;
+
+export const ImageControls = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  
+  button {
+    background: #333;
+    color: white;
+    border: 1px solid #555;
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    
+    &:hover {
+      background: #444;
+    }
+    
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  }
 `;
 
 export const ViewerGrid = styled.div`
@@ -33,16 +102,10 @@ export const ViewerGrid = styled.div`
   background: black;
 `;
 
-export const ViewerPanel = styled.div`
-  position: relative;
-  background: black;
-  border: 1px solid ${props => props.theme.colors.border};
-`;
-
-export const Canvas = styled.canvas`
+export const Canvas = styled.div`
   width: 100%;
   height: 100%;
-  background: black;
+  outline: none;
 `;
 
 export const Controls = styled.div`
@@ -156,14 +219,6 @@ export const SeriesItem = styled.div<{ isSelected: boolean }>`
   &:hover {
     background: ${props => props.isSelected ? props.theme.colors.primary : props.theme.colors.background.hover};
   }
-`;
-
-export const ToolbarContainer = styled.div`
-  display: flex;
-  gap: 5px;
-  padding: 8px;
-  background-color: #f0f0f0;
-  border-top: 1px solid #ddd;
 `;
 
 export const ToolButton = styled.button<{ isActive: boolean }>`
