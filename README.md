@@ -2,9 +2,10 @@
 ====================
 
 To do:
-https://github.com/cornerstonejs/cornerstone3D/tree/main/packages/ai
-- Gå igenom varje funktion från flask till frontend
-- Uppdatera @imaging_data att skicka rätt data
+- deleta hela dicomviewer
+- https://github.com/cornerstonejs/cornerstone3D/tree/main/packages/ai
+- Gå igenom varje funktion från flask till frontend DONE
+- Uppdatera @imaging_data att skicka rätt data DONE
 - Currently working on implementing cornerstone3D in the dicom viewer
 - Improve tumor analysis service
 - Better dicom viewer, for example through batch up 
