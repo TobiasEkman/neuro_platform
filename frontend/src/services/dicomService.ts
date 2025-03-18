@@ -11,37 +11,32 @@ import { logger } from '../utils/logger';
 
 import * as cornerstone from '@cornerstonejs/core';
 import * as csTools from '@cornerstonejs/tools';
-
-// Importera dicom-image-loader med typkastning för att hantera saknade properties
 import * as dicomImageLoaderModule from '@cornerstonejs/dicom-image-loader';
+import dicomParser from 'dicom-parser';
 
 // Typkasta dicomImageLoader för att hantera saknade properties i typdeklarationen
 const cornerstoneDICOMImageLoader = dicomImageLoaderModule as any;
 
-// Använd typassertioner för att få verktygen och funktioner
-const toolsInit = (csTools as any).init;
-const addTool = (csTools as any).addTool;
-const ToolGroupManager = (csTools as any).ToolGroupManager;
-
-// Typkasta cornerstone för att hantera saknade properties
-const cornerstoneImageLoader = cornerstone as any;
+// Destrukturera alla verktyg på ett ställe
+const { 
+  ToolGroupManager, 
+  WindowLevelTool, 
+  ZoomTool, 
+  PanTool, 
+  LengthTool,
+  StackScrollTool,
+  init: initTools,
+  addTool
+} = csTools as any;
 
 // Definiera verktygsnamn som konstanter
 const TOOL_NAMES = {
-  STACK_SCROLL: 'StackScrollMouseWheelTool',
+  STACK_SCROLL: 'StackScrollTool',
   WINDOW_LEVEL: 'WindowLevelTool',
   ZOOM: 'ZoomTool',
   PAN: 'PanTool',
   LENGTH: 'LengthTool'
 };
-
-// Typer för Cornerstone
-const { 
-  Enums: csEnums, 
-  volumeLoader, 
-  setVolumesForViewports, 
-  cache 
-} = cornerstone;
 
 export interface DicomImageId {
   imageId: string;
@@ -81,17 +76,6 @@ declare module '@cornerstonejs/dicom-image-loader' {
   export function init(options: CustomLoaderOptions): void;
 }
 
-// Definiera interface för loader options
-interface DicomImageLoaderOptions {
-  maxWebWorkers: number;
-  webWorkerPath: string;
-  taskConfiguration?: {
-    decodeTask: {
-      codecsPath?: string;
-    };
-  };
-}
-
 export class DicomService {
   private baseUrl: string;
   private initialized: boolean = false;
@@ -102,11 +86,11 @@ export class DicomService {
   }
 
   /**
-   * Initierar Cornerstone3D och dess verktyg
+   * En alternativ, förenklad initialiseringsmetod
    */
   async initialize(): Promise<void> {
     if (this.initialized) {
-      console.log('[DicomService] Already initialized, skipping initialization');
+      console.log('[DicomService] Redan initialiserad, hoppar över');
       return;
     }
 
@@ -115,48 +99,179 @@ export class DicomService {
       
       // Initiera kärnbiblioteken
       await cornerstone.init();
-      await cornerstoneDICOMImageLoader.init({
-        maxWebWorkers: navigator.hardwareConcurrency || 4,
-        startWebWorkersOnDemand: true,
-      });
+      console.log('[DicomService] Cornerstone initialiserat');
       
-      // Konfigurera WADO Image Loader
-      cornerstoneDICOMImageLoader.configure({
-        beforeSend: (xhr: XMLHttpRequest) => {
-          // Lägg till headers om nödvändigt
-        },
-        useWebWorkers: true,
-        decodeConfig: {
-          convertFloatPixelDataToInt: false,
+      // Förenklade sökvägar
+      const webWorkerUrl = `${window.location.origin}/cornerstoneWADOImageLoaderWebWorker.min.js`;
+      const codecsUrl = `${window.location.origin}/cornerstoneWADOImageLoaderCodecs.min.js`;
+      
+      console.log('[DicomService] Web worker URL:', webWorkerUrl);
+      console.log('[DicomService] Codecs URL:', codecsUrl);
+      
+      // Testa att ladda worker-filen direkt för att verifiera att den finns
+      try {
+        const response = await fetch(webWorkerUrl, { method: 'HEAD' });
+        if (response.ok) {
+          console.log('[DicomService] Web worker fil hittades');
+        } else {
+          console.warn('[DicomService] Web worker fil kunde inte hittas:', webWorkerUrl);
         }
-      });
+      } catch (e) {
+        console.warn('[DicomService] Kunde inte testa web worker URL:', e);
+      }
       
-      // Konfigurera Web Workers
-      cornerstoneDICOMImageLoader.webWorkerManager.initialize({
-        maxWebWorkers: navigator.hardwareConcurrency || 4,
-        startWebWorkersOnDemand: true,
-      });
+      // Låt oss verifiera vad cornerstoneDICOMImageLoader innehåller
+      console.log('[DicomService] cornerstoneDICOMImageLoader-objekt:', Object.keys(cornerstoneDICOMImageLoader));
       
-      // VIKTIGT: Registrera WADO-URI-laddaren explicit
-      (cornerstone.imageLoader as any).registerImageLoader(
-        'wadouri', 
-        cornerstoneDICOMImageLoader.wadouri.loadImage
-      );
+      // Enklare konfiguration baserad på rekommenderade exempel
+      if (cornerstoneDICOMImageLoader.external) {
+        cornerstoneDICOMImageLoader.external.cornerstone = cornerstone;
+        console.log('[DicomService] Konfigurerade external.cornerstone');
+      }
       
-      console.log('[DicomService] WADO Image Loader konfigurerad');
+      if (cornerstoneDICOMImageLoader.webWorkerManager && 
+          typeof cornerstoneDICOMImageLoader.webWorkerManager.initialize === 'function') {
+        const workerConfig = {
+          maxWebWorkers: navigator.hardwareConcurrency || 2, // Använd färre workers 
+          startWebWorkersOnDemand: true,
+          webWorkerPath: webWorkerUrl,
+          taskConfiguration: {
+            decodeTask: {
+              codecsPath: codecsUrl
+            }
+          }
+        };
+        
+        console.log('[DicomService] Konfigurerar web workers med:', workerConfig);
+        cornerstoneDICOMImageLoader.webWorkerManager.initialize(workerConfig);
+      }
+      
+      // Konfigurera loaders - logga mycket för att felsöka
+      if (cornerstoneDICOMImageLoader.wadouri) {
+        console.log('[DicomService] WADO-URI modul hittad');
+        console.log('[DicomService] Funktioner i wadouri:', Object.keys(cornerstoneDICOMImageLoader.wadouri));
+        
+        if (typeof cornerstoneDICOMImageLoader.wadouri.loadImage === 'function') {
+          console.log('[DicomService] loadImage-funktion hittad, registrerar...');
+          
+          // Registrera loadern med typkastning för att undvika TypeScript-fel
+          const imageLoaderAny = cornerstone.imageLoader as any;
+          if (imageLoaderAny && typeof imageLoaderAny.registerImageLoader === 'function') {
+            imageLoaderAny.registerImageLoader('wadouri', cornerstoneDICOMImageLoader.wadouri.loadImage);
+            console.log('[DicomService] WADO-URI laddare registrerad');
+          } else {
+            console.error('[DicomService] cornerstone.imageLoader.registerImageLoader finns inte');
+          }
+        } else {
+          console.error('[DicomService] loadImage-funktion saknas i wadouri-modulen');
+        }
+      } else {
+        console.error('[DicomService] WADO-URI modul saknas i cornerstoneDICOMImageLoader');
+      }
+      
+      // Kontrollera om laddaren registrerades framgångsrikt, också med typkastning
+      const imageLoaderAny = cornerstone.imageLoader as any;
+      if (imageLoaderAny && typeof imageLoaderAny.getImageLoader === 'function') {
+        const loader = imageLoaderAny.getImageLoader('wadouri');
+        console.log('[DicomService] Kontrollerar WADO-URI laddare:', loader ? 'Registrerad' : 'Saknas');
+        
+        if (!loader) {
+          console.error('[DicomService] WADO-URI laddare kunde inte registreras');
+        }
+      }
       
       // Initiera verktyg
-      console.log('[DicomService] Initializing tools...');
-      await toolsInit();
+      console.log('[DicomService] Initierar tools...');
+      await initTools();
       
       // Registrera verktyg
-      console.log('[DicomService] Registering tools...');
+      console.log('[DicomService] Registrerar verktyg...');
       this.registerTools();
       
-      console.log('[DicomService] Initialization completed successfully');
+      console.log('[DicomService] Alla tillgängliga verktyg i csTools:', Object.keys(csTools));
+      
+      // Ersätt koden för metadataprovider-registrering
+      // Kontrollera först strukturen innan vi använder den
+      if (cornerstoneDICOMImageLoader.wadors && 
+          cornerstoneDICOMImageLoader.wadors.metaData && 
+          typeof cornerstoneDICOMImageLoader.wadors.metaData.addProvider === 'function') {
+        console.log('[DicomService] Registrerar wadors metadataprovider');
+        cornerstoneDICOMImageLoader.wadors.metaData.addProvider(
+          cornerstoneDICOMImageLoader.wadouri.metaDataProvider
+        );
+      } else {
+        console.log('[DicomService] wadors.metaData.addProvider är inte tillgänglig, kontrollerar alternativa metoder');
+        
+        // Alternativa metoder att registrera metadata providers
+        if (cornerstoneDICOMImageLoader.wadouri && 
+            cornerstoneDICOMImageLoader.wadouri.metaDataProvider && 
+            cornerstone.metaData && 
+            typeof cornerstone.metaData.addProvider === 'function') {
+          
+          console.log('[DicomService] Registrerar wadouri metadataprovider via cornerstone.metaData');
+          cornerstone.metaData.addProvider(cornerstoneDICOMImageLoader.wadouri.metaDataProvider);
+          console.log('[DicomService] wadouri metadataprovider registrerad');
+        } else {
+          console.warn('[DicomService] Kunde inte registrera metadataprovider, metadata kan vara otillgängligt');
+        }
+      }
+
+      // Logga tillgängliga metoder för felsökning
+      console.log('[DicomService] cornerstone.metaData:', typeof cornerstone.metaData);
+      if (cornerstone.metaData) {
+        console.log('[DicomService] cornerstone.metaData metoder:', Object.keys(cornerstone.metaData));
+      }
+
+      console.log('[DicomService] cornerstoneDICOMImageLoader.wadouri:', typeof cornerstoneDICOMImageLoader.wadouri);
+      if (cornerstoneDICOMImageLoader.wadouri) {
+        console.log('[DicomService] cornerstoneDICOMImageLoader.wadouri metoder:', Object.keys(cornerstoneDICOMImageLoader.wadouri));
+      }
+
+      console.log('[DicomService] cornerstoneDICOMImageLoader.wadors:', typeof cornerstoneDICOMImageLoader.wadors);
+      if (cornerstoneDICOMImageLoader.wadors) {
+        console.log('[DicomService] cornerstoneDICOMImageLoader.wadors metoder:', Object.keys(cornerstoneDICOMImageLoader.wadors));
+      }
+
+      // Konfigurera DICOM-laddaren med säkerhets-check
+      if (typeof cornerstoneDICOMImageLoader.configure === 'function') {
+        console.log('[DicomService] Konfigurerar DICOM-laddaren');
+        cornerstoneDICOMImageLoader.configure({
+          useWebWorkers: true,
+          decodeConfig: {
+            convertFloatPixelDataToInt: false,
+            use16Bits: true
+          }
+        });
+      } else {
+        console.warn('[DicomService] cornerstoneDICOMImageLoader.configure är inte en funktion');
+      }
+
+      console.log('[DicomService] Metadata providers registrerade');
+
+      // Konfigurera dicomParser i external
+      if (cornerstoneDICOMImageLoader.external === undefined) {
+        console.log('[DicomService] cornerstoneDICOMImageLoader.external är undefined, skapar objekt');
+        cornerstoneDICOMImageLoader.external = {
+          dicomParser
+        };
+      } else if (cornerstoneDICOMImageLoader.external.dicomParser === undefined) {
+        console.log('[DicomService] Lägger till dicomParser i external');
+        cornerstoneDICOMImageLoader.external.dicomParser = dicomParser;
+      }
+
+      console.log('[DicomService] dicomParser konfigurerad:', !!cornerstoneDICOMImageLoader.external?.dicomParser);
+
+      // Konfigurera thumbnail för cachehantering
+      (cornerstone.cache as any).setMaxCacheSize(3000);
+      
+      console.log('[DicomService] Initieringen slutfördes framgångsrikt');
       this.initialized = true;
     } catch (error) {
       console.error('[DicomService] Initialisering misslyckades:', error);
+      if (error instanceof Error) {
+        console.error('[DicomService] Felmeddelande:', error.message);
+        console.error('[DicomService] Stack:', error.stack);
+      }
       throw error;
     }
   }
@@ -166,19 +281,66 @@ export class DicomService {
    */
   private registerTools(): void {
     try {
-      // Hämta verktyg från csTools
-      const tools = csTools as any;
+      // Uppdaterad verktygsregistrering enligt Cornerstone Tools 3.0
+      console.log('[DicomService] Registrerar verktyg...');
       
-      // Registrera verktyg
-      addTool(tools.StackScrollMouseWheelTool);
-      addTool(tools.WindowLevelTool);
-      addTool(tools.ZoomTool);
-      addTool(tools.PanTool);
-      addTool(tools.LengthTool);
+      // Logga verktygsdetaljer för felsökning
+      console.log('[DicomService] WindowLevelTool:', typeof WindowLevelTool, WindowLevelTool);
+      console.log('[DicomService] ZoomTool:', typeof ZoomTool, ZoomTool);
+      console.log('[DicomService] PanTool:', typeof PanTool, PanTool);
+      console.log('[DicomService] LengthTool:', typeof LengthTool, LengthTool);
+      console.log('[DicomService] StackScrollTool:', typeof StackScrollTool, StackScrollTool);
+      console.log('[DicomService] addTool funktion:', typeof addTool, addTool);
+      
+      // Registrera verktygen ett i taget med try/catch runt varje
+      try {
+        console.log('[DicomService] Registrerar WindowLevelTool...');
+        addTool(WindowLevelTool);
+      } catch (e) {
+        console.error('[DicomService] Fel vid registrering av WindowLevelTool:', e);
+      }
+      
+      try {
+        console.log('[DicomService] Registrerar ZoomTool...');
+        addTool(ZoomTool);
+      } catch (e) {
+        console.error('[DicomService] Fel vid registrering av ZoomTool:', e);
+      }
+      
+      try {
+        console.log('[DicomService] Registrerar PanTool...');
+        addTool(PanTool);
+      } catch (e) {
+        console.error('[DicomService] Fel vid registrering av PanTool:', e);
+      }
+      
+      try {
+        console.log('[DicomService] Registrerar LengthTool...');
+        addTool(LengthTool);
+      } catch (e) {
+        console.error('[DicomService] Fel vid registrering av LengthTool:', e);
+      }
+      
+      try {
+        console.log('[DicomService] Registrerar StackScrollTool...');
+        addTool(StackScrollTool);
+      } catch (e) {
+        console.error('[DicomService] Fel vid registrering av StackScrollTool:', e);
+      }
+      
+      console.log('[DicomService] WindowLevelTool.toolName:', WindowLevelTool?.toolName);
+      console.log('[DicomService] ZoomTool.toolName:', ZoomTool?.toolName);
+      console.log('[DicomService] PanTool.toolName:', PanTool?.toolName);
+      console.log('[DicomService] LengthTool.toolName:', LengthTool?.toolName);
+      console.log('[DicomService] StackScrollTool.toolName:', StackScrollTool?.toolName);
       
       console.log('[DicomService] Tools registered successfully');
     } catch (error) {
       console.error('[DicomService] Failed to register tools:', error);
+      if (error instanceof Error) {
+        console.error('[DicomService] Error message:', error.message);
+        console.error('[DicomService] Error stack:', error.stack);
+      }
       throw new Error('Failed to register tools');
     }
   }
@@ -186,30 +348,35 @@ export class DicomService {
   /**
    * Skapar en toolGroup för en viewport
    */
-  createToolGroup(viewportId: string, renderingEngineId: string): any {
+  createToolGroup(toolGroupId: string): any {
     if (!this.initialized) {
       throw new Error('Cornerstone not initialized. Call initialize() first.');
     }
 
-    // Skapa en toolGroup
-    this.toolGroup = ToolGroupManager.createToolGroup(viewportId);
-    
-    // Lägg till verktyg i toolGroup
-    this.toolGroup.addTool(TOOL_NAMES.STACK_SCROLL);
-    this.toolGroup.addTool(TOOL_NAMES.WINDOW_LEVEL);
-    this.toolGroup.addTool(TOOL_NAMES.ZOOM);
-    this.toolGroup.addTool(TOOL_NAMES.PAN);
-    this.toolGroup.addTool(TOOL_NAMES.LENGTH);
-    
-    // Aktivera scrollhjul för stack navigation
-    this.toolGroup.setToolActive(TOOL_NAMES.STACK_SCROLL);
-    
-    // Aktivera window/level som standard verktyg
-    this.toolGroup.setToolActive(TOOL_NAMES.WINDOW_LEVEL, {
-      bindings: [{ mouseButton: 1 }],
-    });
-    
-    return this.toolGroup;
+    try {
+      // Skapa en toolGroup
+      this.toolGroup = ToolGroupManager.createToolGroup(toolGroupId);
+      
+      // Lägg till verktyg i toolGroup
+      this.toolGroup.addTool(TOOL_NAMES.STACK_SCROLL);
+      this.toolGroup.addTool(TOOL_NAMES.WINDOW_LEVEL);
+      this.toolGroup.addTool(TOOL_NAMES.ZOOM);
+      this.toolGroup.addTool(TOOL_NAMES.PAN);
+      this.toolGroup.addTool(TOOL_NAMES.LENGTH);
+      
+      // Aktivera scrollhjul för stack navigation
+      this.toolGroup.setToolActive(TOOL_NAMES.STACK_SCROLL);
+      
+      // Aktivera window/level som standard verktyg
+      this.toolGroup.setToolActive(TOOL_NAMES.WINDOW_LEVEL, {
+        bindings: [{ mouseButton: 1 }],
+      });
+      
+      return this.toolGroup;
+    } catch (error) {
+      console.error('[DicomService] Failed to create tool group:', error);
+      throw new Error('Failed to create tool group');
+    }
   }
 
   /**
@@ -235,39 +402,41 @@ export class DicomService {
   /**
    * Hämtar imageIds för en serie
    */
-  async getImageIds(params: { studyId?: string; seriesId?: string }): Promise<DicomImageId[]> {
+  async getImageIds(params: { [key: string]: string }): Promise<DicomImageId[]> {
     try {
-      console.log('[DicomService] Fetching imageIds with params:', JSON.stringify(params));
+      console.log('[DicomService] Anropar URL:', '/api/dicom/imageIds');
+      console.log('[DicomService] Med params:', params);
       
-      // Kontrollera att params är ett objekt
-      if (typeof params !== 'object' || params === null) {
-        console.error('[DicomService] Invalid params:', params);
-        params = {};
+      const response = await axios.get('/api/dicom/imageIds', { params });
+      console.log('[DicomService] Svarsstatuskod:', response.status);
+      console.log('[DicomService] Svarsdata:', response.data);
+      
+      if (!Array.isArray(response.data)) {
+        console.error('[DicomService] Oväntat svarsformat, förväntade array:', response.data);
+        return [];
       }
       
-      // Kontrollera att seriesId finns
-      if (!params.seriesId) {
-        console.error('[DicomService] seriesId is missing in params');
+      if (response.data.length > 0) {
+        const firstItem = response.data[0];
+        console.log('[DicomService] Kontrollerar fält i första bildobjektet:');
+        console.log('- imageId:', !!firstItem.imageId);
+        console.log('- sopInstanceUid:', !!firstItem.sopInstanceUid);
+        console.log('- seriesInstanceUid:', !!firstItem.seriesInstanceUid);
+        console.log('- instanceNumber:', !!firstItem.instanceNumber);
+        
+        if (firstItem.imageId) {
+          console.log('[DicomService] ImageId format är:', firstItem.imageId);
+        }
       }
-      
-      // Logga URL och params
-      const url = `${this.baseUrl}/imageIds`;
-      console.log('[DicomService] Calling URL:', url);
-      console.log('[DicomService] With params:', params);
-      
-      const response = await axios.get(url, { params });
-      
-      console.log('[DicomService] Response status:', response.status);
-      console.log('[DicomService] Response data length:', response.data.length);
       
       return response.data;
     } catch (error: unknown) {
-      console.error('[DicomService] Error fetching imageIds:', error);
+      console.error('[DicomService] Fel vid hämtning av imageIds:', error);
       if (error instanceof Error) {
-        console.error('[DicomService] Error message:', error.message);
+        console.error('[DicomService] Felmeddelande:', error.message);
       }
       if (axios.isAxiosError(error) && error.response) {
-        console.error('[DicomService] Error response:', error.response.data);
+        console.error('[DicomService] Fel i svar:', error.response.data);
       }
       throw error;
     }
@@ -586,6 +755,11 @@ export class DicomService {
       console.error('Error importing DICOM data:', error);
       throw error;
     }
+  }
+
+  // Lägg till denna metod för att kontrollera om tjänsten är initialiserad
+  isInitialized(): boolean {
+    return this.initialized;
   }
 
   private handleError(error: unknown, defaultMessage = 'An error occurred'): Error {

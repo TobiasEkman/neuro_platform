@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import styled from 'styled-components';
 import * as cornerstone from '@cornerstonejs/core';
-import * as cornerstoneTools from '@cornerstonejs/tools';
 import dicomService, { DicomImageId, DicomMetadata } from '../../services/dicomService';
 import { DicomStudy, DicomSeries, DicomPatientSummary } from '../../types/medical';
 import {
@@ -27,24 +26,20 @@ import {
   RenderingEngine,
   Types,
   Enums,
-  cache as cornerstoneCache,
   StackViewport
 } from '@cornerstonejs/core';
 
 // Importera nödvändiga verktyg direkt från csTools
 import * as csTools from '@cornerstonejs/tools';
 const { 
-  Enums: csToolsEnums 
+  ToolGroupManager,
+  Enums: csToolsEnums,
+  WindowLevelTool,
+  ZoomTool,
+  PanTool,
+  LengthTool,
+  StackScrollMouseWheelTool
 } = csTools as any;
-
-// Lägg till i början av filen
-interface ToolGroupManagerType {
-  createToolGroup: (name: string) => any;
-  getToolGroup: (name: string) => any;
-}
-
-// Och sedan i din import-sektion
-const ToolGroupManager = (csTools as any).ToolGroupManager as ToolGroupManagerType;
 
 // Toolbar-knappdefinitioner
 interface ToolButtonDefinition {
@@ -57,24 +52,31 @@ interface ToolButtonDefinition {
 
 const toolButtons: ToolButtonDefinition[] = [
   { 
-    name: 'pan', 
-    label: 'Panorera', 
-    icon: '↔️', 
-    toolName: 'PanTool',
-    mouseButton: 1 // Primär musknapp (vänster klick) 
+    name: 'windowLevel', 
+    label: 'Fönster/Nivå', 
+    icon: '🌓', 
+    toolName: 'WindowLevelTool',
+    mouseButton: 1 
   },
   { 
     name: 'zoom', 
     label: 'Zooma', 
     icon: '🔍', 
     toolName: 'ZoomTool',
-    mouseButton: 2 // Sekundär musknapp (höger klick)
+    mouseButton: 1 
   },
   { 
-    name: 'window', 
-    label: 'Fönster/Nivå', 
-    icon: '🌓', 
-    toolName: 'WindowLevelTool',
+    name: 'pan', 
+    label: 'Panorera', 
+    icon: '↔️', 
+    toolName: 'PanTool',
+    mouseButton: 1 
+  },
+  { 
+    name: 'length', 
+    label: 'Mät', 
+    icon: '📏', 
+    toolName: 'LengthTool',
     mouseButton: 1 
   }
 ];
@@ -319,7 +321,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
         const viewportId = 'CT_MPR';
         const viewportInput = {
           viewportId,
-          element: axialRef.current,
+          element: axialRef.current!,
           type: Enums.ViewportType.ORTHOGRAPHIC,
           defaultOptions: {
             orientation: Enums.OrientationAxis.AXIAL,
@@ -361,24 +363,28 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
 
   // Funktion för att byta aktivt verktyg
   const handleToolChange = (toolName: string, mouseButton: number) => {
-      if (!renderingEngine) return;
-      
-      setActiveTool(toolName);
-      
-      // Hämta toolGroup med typkastning
-      const toolGroupInstance = (ToolGroupManager as any).getToolGroup('CT_AXIAL_STACK');
-      if (!toolGroupInstance) return;
-      
+    if (!renderingEngine || !toolGroup) return;
+    
+    setActiveTool(toolName);
+    
+    try {
       // Inaktivera alla verktyg först
       toolButtons.forEach(tool => {
-        toolGroupInstance.setToolPassive(tool.toolName);
+        if (tool.toolName !== 'StackScrollMouseWheelTool') {
+          toolGroup.setToolPassive(tool.toolName);
+        }
       });
       
       // Aktivera det valda verktyget
-      toolGroupInstance.setToolActive(toolName, {
+      toolGroup.setToolActive(toolName, {
         bindings: [{ mouseButton }]
       });
-    };
+      
+      console.log(`[DicomViewer] Aktiverade verktyg: ${toolName}`);
+    } catch (error) {
+      console.error(`[DicomViewer] Fel vid byte av verktyg till ${toolName}:`, error);
+    }
+  };
   
   // Hantera byte av bild
   const handleImageChange = useCallback(async (index: number) => {
@@ -518,7 +524,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
     loadImageIds();
   }, [selectedSeriesId]);
 
-  // Uppdatera setupViewport för att felsöka bildladdning
+  // Uppdatera setupViewport för korrekt verktygshantering
   useEffect(() => {
     if (!axialRef.current || imageIds.length === 0 || loading || error) {
       return;
@@ -528,26 +534,86 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
       try {
         console.log('[DicomViewer] Konfigurerar viewport...');
         
-        // Logga information om bild-ID:n
-        console.log('[DicomViewer] Första bildformat:', imageIds[0]);
+        // Kontrollera att Cornerstone är initialiserat
+        if (!dicomService.isInitialized()) {
+          await dicomService.initialize();
+        }
         
-        // Kontrollera om bildladdare finns för wadouri
-        const imageLoader = cornerstone.imageLoader as any;
-        const hasWadoLoader = imageLoader.getImageLoader && imageLoader.getImageLoader('wadouri');
+        // Skapa rendering engine om den inte finns
+        if (!renderingEngine) {
+          console.log('[DicomViewer] Skapar rendering engine...');
+          const engine = new RenderingEngine('myRenderingEngine');
+          setRenderingEngine(engine);
+          
+          // Konfigurera viewport
+          const viewportInput = {
+            viewportId: 'myViewport',
+            type: Enums.ViewportType.STACK,
+            element: axialRef.current!,
+            defaultOptions: {
+              background: [0, 0, 0],
+            },
+          };
+          
+          // Aktivera viewport i rendering engine
+          await engine.enableElement(viewportInput);
+          
+          // Skapa toolGroup
+          try {
+            // Skapa en ny toolGroup med ett unikt ID
+            const myToolGroup = ToolGroupManager.createToolGroup('myToolGroup');
+            
+            // Lägg till verktyg i toolGroup
+            myToolGroup.addTool(WindowLevelTool);
+            myToolGroup.addTool(ZoomTool);
+            myToolGroup.addTool(PanTool);
+            myToolGroup.addTool(LengthTool);
+            myToolGroup.addTool(StackScrollMouseWheelTool);
+            
+            // Aktivera scrollhjul för stack navigation
+            myToolGroup.setToolActive('StackScrollMouseWheelTool');
+            
+            // Aktivera window/level som standard verktyg
+            myToolGroup.setToolActive('WindowLevelTool', {
+              bindings: [{ mouseButton: 1 }],
+            });
+            
+            // Lägg till viewport i toolGroup
+            myToolGroup.addViewport('myViewport', 'myRenderingEngine');
+            
+            setToolGroup(myToolGroup);
+            setActiveTool('WindowLevelTool');
+          } catch (toolError) {
+            console.error('[DicomViewer] Fel vid skapande av toolGroup:', toolError);
+          }
+        }
         
-        console.log('[DicomViewer] Har WADO-URI laddare:', !!hasWadoLoader);
+        // Hämta viewport från rendering engine
+        const viewport = renderingEngine.getViewport('myViewport') as StackViewport;
         
-        if (!hasWadoLoader) {
-          console.error('[DicomViewer] WADO-URI laddare saknas, kan inte visa DICOM-bilder');
-          setError('Kan inte visa DICOM-bilder: WADO-URI laddare saknas');
+        if (!viewport) {
+          console.error('[DicomViewer] Kunde inte hitta viewport');
+          setError('Kunde inte konfigurera bildvisning');
           return;
         }
         
-        // Fortsätt med resten av setup-koden...
+        // Skapa en stack med bilder
+        const stack = imageIds.map(img => img.imageId);
+        console.log('[DicomViewer] Stack att ladda:', stack);
+        
+        // Ladda stack i viewport
+        await viewport.setStack(stack, 0);
+        
+        // Rendera viewport
+        viewport.render();
+        
+        console.log('[DicomViewer] Viewport konfigurerad och renderad');
+        
+        // Ställ in initial bild
+        setCurrentImageIndex(0);
       } catch (error) {
         console.error('[DicomViewer] Fel vid setupViewport:', error);
         
-        // Visa mer detaljerat felmeddelande
         if (error instanceof Error) {
           setError(`Misslyckades att ställa in viewer: ${error.message}`);
         } else {
