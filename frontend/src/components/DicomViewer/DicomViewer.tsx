@@ -125,14 +125,6 @@ const ErrorOverlay = styled(LoadingOverlay)`
   background-color: rgba(100, 0, 0, 0.7);
 `;
 
-// Verktyg som ska visas i toolbaren
-const tools = [
-  { name: 'WindowLevel', label: 'Window/Level', icon: 'W' },
-  { name: 'Zoom', label: 'Zoom', icon: 'Z' },
-  { name: 'Pan', label: 'Pan', icon: 'P' },
-  { name: 'Length', label: 'Measure', icon: 'M' },
-];
-
 // Lägg till denna typ i början av filen
 type AnyRenderingEngine = any;
 
