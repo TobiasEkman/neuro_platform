@@ -553,6 +553,23 @@ def get_metadata(sop_instance_uid):
                                         except Exception as e:
                                             logger.warning(f"[get_metadata] Kunde inte konvertera WindowWidth: {e}")
                                     
+                                    # Hantera samplesPerPixel (kritiskt för bildvisning)
+                                    if hasattr(ds, 'SamplesPerPixel'):
+                                        try:
+                                            metadata['samplesPerPixel'] = int(ds.SamplesPerPixel)
+                                        except Exception as e:
+                                            logger.warning(f"[get_metadata] Kunde inte konvertera SamplesPerPixel: {e}")
+                                            # Använd 1 som standardvärde (monokrom bild) om det saknas
+                                            metadata['samplesPerPixel'] = 1
+                                    else:
+                                        # För de flesta medicinska bilder är detta 1 (gråskala)
+                                        logger.warning("[get_metadata] SamplesPerPixel saknas, använder standardvärde 1")
+                                        metadata['samplesPerPixel'] = 1
+                                    
+                                    # Hantera photometricInterpretation (viktigt för korrekt bildrendering)
+                                    if hasattr(ds, 'PhotometricInterpretation'):
+                                        metadata['photometricInterpretation'] = str(ds.PhotometricInterpretation).strip()
+                                    
                                     logger.info("[get_metadata] Metadata extraherad framgångsrikt")
                                     return jsonify(metadata)
                                 except Exception as e:
@@ -627,6 +644,23 @@ def get_metadata(sop_instance_uid):
                                                 metadata['windowWidth'] = float(ds.WindowWidth)
                                         except Exception as e:
                                             logger.warning(f"[get_metadata] Kunde inte konvertera WindowWidth: {e}")
+                                    
+                                    # Hantera samplesPerPixel (kritiskt för bildvisning)
+                                    if hasattr(ds, 'SamplesPerPixel'):
+                                        try:
+                                            metadata['samplesPerPixel'] = int(ds.SamplesPerPixel)
+                                        except Exception as e:
+                                            logger.warning(f"[get_metadata] Kunde inte konvertera SamplesPerPixel: {e}")
+                                            # Använd 1 som standardvärde (monokrom bild) om det saknas
+                                            metadata['samplesPerPixel'] = 1
+                                    else:
+                                        # För de flesta medicinska bilder är detta 1 (gråskala)
+                                        logger.warning("[get_metadata] SamplesPerPixel saknas, använder standardvärde 1")
+                                        metadata['samplesPerPixel'] = 1
+                                    
+                                    # Hantera photometricInterpretation (viktigt för korrekt bildrendering)
+                                    if hasattr(ds, 'PhotometricInterpretation'):
+                                        metadata['photometricInterpretation'] = str(ds.PhotometricInterpretation).strip()
                                     
                                     logger.info("[get_metadata] Metadata extraherad framgångsrikt")
                                     return jsonify(metadata)
