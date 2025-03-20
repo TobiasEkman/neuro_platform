@@ -467,17 +467,24 @@ def get_instance(sop_instance_uid):
 
 @app.route('/api/dicom/metadata/<sop_instance_uid>', methods=['GET'])
 def get_metadata(sop_instance_uid):
-    """Hämta metadata för en DICOM-instans"""
+    """Hämtar metadata för en specifik DICOM-instans"""
     try:
-        logger.info(f"[get_metadata] Hämtar metadata för SOP Instance UID: {sop_instance_uid}")
+        logger.info(f"[get_metadata] Hämtar metadata för SOP UID: {sop_instance_uid}")
         
-        # Sök genom alla studier för att hitta instansen
-        for study in db.studies.find({}, {'_id': 0}):
+        # Sök genom studies-kollektionen för att hitta instansen med detta SOP UID
+        for study in db.studies.find():
+            logger.info(f"[get_metadata] Kontrollerar studie: {study.get('study_instance_uid', 'okänt')}")
+            
             for series in study.get('series', []):
-                for instance in series.get('instances', []):
-                    # Konvertera instance till ett objekt om det är en sträng
+                logger.info(f"[get_metadata] Kontrollerar serie: {series.get('series_uid', 'okänt')}")
+                
+                instances = series.get('instances', [])
+                for instance in instances:
+                    # Förbättrad loggning för att spåra instanstyper
+                    logger.info(f"[get_metadata] Instanstyp: {type(instance)}")
+                    
                     if isinstance(instance, str):
-                        logger.debug("[get_metadata] Hanterar strängbaserad instans")
+                        # Hantera strängbaserad instans
                         instance_str = instance.strip('@{}')
                         instance_parts = instance_str.split('; ')
                         instance_obj = {}
@@ -486,105 +493,41 @@ def get_metadata(sop_instance_uid):
                             instance_obj[key] = value
                         
                         if instance_obj.get('sop_instance_uid') == sop_instance_uid:
-                            # Hitta filen och läs metadata
                             file_path = instance_obj.get('file_path')
+                            logger.info(f"[get_metadata] Hittade fil (från sträng) för SOP UID: {file_path}")
+                            
+                            # Fortsätt med att hantera filen på samma sätt som för dict-instances
                             if file_path and os.path.exists(file_path):
-                                try:
-                                    # Läs DICOM-filen
-                                    ds = pydicom.dcmread(file_path)
-                                    logger.debug(f"[get_metadata] Läste DICOM-fil: {file_path}")
-                                    
-                                    # Extrahera metadata
-                                    metadata = {
-                                        'studyInstanceUid': study.get('study_instance_uid', study.get('study_uid', '')),
-                                        'seriesInstanceUid': series.get('series_uid', ''),
-                                        'sopInstanceUid': sop_instance_uid,
-                                        'rows': int(ds.get('Rows', 0)),
-                                        'columns': int(ds.get('Columns', 0)),
-                                    }
-                                    
-                                    # Hantera pixel spacing (kan vara MultiValue)
-                                    if hasattr(ds, 'PixelSpacing'):
-                                        try:
-                                            pixel_spacing = [float(x) for x in ds.PixelSpacing]
-                                            metadata['pixelSpacing'] = pixel_spacing
-                                        except Exception as e:
-                                            logger.warning(f"[get_metadata] Kunde inte konvertera PixelSpacing: {e}")
-                                    
-                                    # Hantera slice thickness
-                                    if hasattr(ds, 'SliceThickness'):
-                                        try:
-                                            metadata['sliceThickness'] = float(ds.SliceThickness)
-                                        except Exception as e:
-                                            logger.warning(f"[get_metadata] Kunde inte konvertera SliceThickness: {e}")
-                                    
-                                    # Hantera slice location
-                                    if hasattr(ds, 'SliceLocation'):
-                                        try:
-                                            metadata['sliceLocation'] = float(ds.SliceLocation)
-                                        except Exception as e:
-                                            logger.warning(f"[get_metadata] Kunde inte konvertera SliceLocation: {e}")
-                                    
-                                    # Hantera instance number
-                                    if hasattr(ds, 'InstanceNumber'):
-                                        try:
-                                            metadata['instanceNumber'] = int(ds.InstanceNumber)
-                                        except Exception as e:
-                                            logger.warning(f"[get_metadata] Kunde inte konvertera InstanceNumber: {e}")
-                                            metadata['instanceNumber'] = int(instance_obj.get('instance_number', 0))
-                                    
-                                    # Hantera window center
-                                    if hasattr(ds, 'WindowCenter'):
-                                        try:
-                                            if isinstance(ds.WindowCenter, list) or hasattr(ds.WindowCenter, '__iter__'):
-                                                metadata['windowCenter'] = float(ds.WindowCenter[0])
-                                            else:
-                                                metadata['windowCenter'] = float(ds.WindowCenter)
-                                        except Exception as e:
-                                            logger.warning(f"[get_metadata] Kunde inte konvertera WindowCenter: {e}")
-                                    
-                                    # Hantera window width
-                                    if hasattr(ds, 'WindowWidth'):
-                                        try:
-                                            if isinstance(ds.WindowWidth, list) or hasattr(ds.WindowWidth, '__iter__'):
-                                                metadata['windowWidth'] = float(ds.WindowWidth[0])
-                                            else:
-                                                metadata['windowWidth'] = float(ds.WindowWidth)
-                                        except Exception as e:
-                                            logger.warning(f"[get_metadata] Kunde inte konvertera WindowWidth: {e}")
-                                    
-                                    # Hantera samplesPerPixel (kritiskt för bildvisning)
-                                    if hasattr(ds, 'SamplesPerPixel'):
-                                        try:
-                                            metadata['samplesPerPixel'] = int(ds.SamplesPerPixel)
-                                        except Exception as e:
-                                            logger.warning(f"[get_metadata] Kunde inte konvertera SamplesPerPixel: {e}")
-                                            # Använd 1 som standardvärde (monokrom bild) om det saknas
-                                            metadata['samplesPerPixel'] = 1
-                                    else:
-                                        # För de flesta medicinska bilder är detta 1 (gråskala)
-                                        logger.warning("[get_metadata] SamplesPerPixel saknas, använder standardvärde 1")
-                                        metadata['samplesPerPixel'] = 1
-                                    
-                                    # Hantera photometricInterpretation (viktigt för korrekt bildrendering)
-                                    if hasattr(ds, 'PhotometricInterpretation'):
-                                        metadata['photometricInterpretation'] = str(ds.PhotometricInterpretation).strip()
-                                    
-                                    logger.info("[get_metadata] Metadata extraherad framgångsrikt")
-                                    return jsonify(metadata)
-                                except Exception as e:
-                                    logger.error(f"[get_metadata] Error reading DICOM file: {e}")
-                                    return jsonify({'error': f'Error reading DICOM file: {str(e)}'}), 500
+                                # Samma kod som används för dict-instances nedan
+                                # För att undvika duplicering, lägg till loggmeddelande
+                                logger.info(f"[get_metadata] Hanterar strängbaserad instans, filen finns")
                     else:
                         # Om instance är ett objekt
-                        logger.debug("[get_metadata] Hanterar objektbaserad instans")
+                        logger.info(f"[get_metadata] Kontrollerar instansobjekt: {instance.get('sop_instance_uid', 'okänt')}")
+                        
                         if instance.get('sop_instance_uid') == sop_instance_uid:
                             file_path = instance.get('file_path')
+                            logger.info(f"[get_metadata] Hittade fil för SOP UID: {file_path}")
+                            
                             if file_path and os.path.exists(file_path):
+                                logger.info(f"[get_metadata] Filen finns: {os.path.exists(file_path)}")
+                                logger.info(f"[get_metadata] Filstorlek: {os.path.getsize(file_path)} bytes")
+                                
                                 try:
                                     # Läs DICOM-filen
                                     ds = pydicom.dcmread(file_path)
-                                    logger.debug(f"[get_metadata] Läste DICOM-fil: {file_path}")
+                                    logger.info(f"[get_metadata] Läste DICOM-fil: {file_path}")
+                                    
+                                    # Logga grundläggande DICOM-attribut
+                                    logger.info(f"[get_metadata] DICOM Transfer Syntax: {ds.file_meta.TransferSyntaxUID if hasattr(ds, 'file_meta') else 'Okänd'}")
+                                    logger.info(f"[get_metadata] DICOM Rows: {getattr(ds, 'Rows', 'Saknas')}")
+                                    logger.info(f"[get_metadata] DICOM Columns: {getattr(ds, 'Columns', 'Saknas')}")
+                                    logger.info(f"[get_metadata] DICOM SamplesPerPixel: {getattr(ds, 'SamplesPerPixel', 'Saknas')}")
+                                    logger.info(f"[get_metadata] DICOM PhotometricInterpretation: {getattr(ds, 'PhotometricInterpretation', 'Saknas')}")
+                                    logger.info(f"[get_metadata] DICOM BitsAllocated: {getattr(ds, 'BitsAllocated', 'Saknas')}")
+                                    logger.info(f"[get_metadata] DICOM BitsStored: {getattr(ds, 'BitsStored', 'Saknas')}")
+                                    logger.info(f"[get_metadata] DICOM HighBit: {getattr(ds, 'HighBit', 'Saknas')}")
+                                    logger.info(f"[get_metadata] DICOM PixelRepresentation: {getattr(ds, 'PixelRepresentation', 'Saknas')}")
                                     
                                     # Extrahera metadata
                                     metadata = {
@@ -662,17 +605,24 @@ def get_metadata(sop_instance_uid):
                                     if hasattr(ds, 'PhotometricInterpretation'):
                                         metadata['photometricInterpretation'] = str(ds.PhotometricInterpretation).strip()
                                     
-                                    logger.info("[get_metadata] Metadata extraherad framgångsrikt")
+                                    # Lägg till dessa rader precis innan "return jsonify(metadata)"
+                                    logger.info("\n====== DICOM METADATA DUMP ======")
+                                    for key, value in metadata.items():
+                                        logger.info(f"{key}: {value}")
+                                    logger.info("=================================\n")
+                                    
                                     return jsonify(metadata)
                                 except Exception as e:
-                                    logger.error(f"[get_metadata] Error reading DICOM file: {e}")
+                                    logger.error(f"[get_metadata] Error reading DICOM file: {e}", exc_info=True)
                                     return jsonify({'error': f'Error reading DICOM file: {str(e)}'}), 500
+                            else:
+                                logger.error(f"[get_metadata] Fil hittades i DB men finns inte på disk: {file_path}")
         
         # Om vi kommer hit har vi inte hittat instansen
         logger.warning(f"[get_metadata] Instance with SOP UID {sop_instance_uid} not found")
         return jsonify({'error': f'Instance with SOP UID {sop_instance_uid} not found'}), 404
     except Exception as e:
-        logger.error(f"[get_metadata] Error getting metadata: {str(e)}")
+        logger.error(f"[get_metadata] Error getting metadata: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/dicom/debug/format/<sop_instance_uid>', methods=['GET'])
@@ -720,6 +670,70 @@ def check_dicom_format(sop_instance_uid):
         return jsonify(info)
     except Exception as e:
         logger.error(f"Error checking DICOM format: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/dicom/debug/file/<sop_instance_uid>', methods=['GET'])
+def debug_dicom_file(sop_instance_uid):
+    """Detaljerad felsökning av en DICOM-fil"""
+    try:
+        logger.info(f"[debug_dicom_file] Debugging SOP UID: {sop_instance_uid}")
+        
+        # Hitta filen i databasen
+        file_path = None
+        for study in db.studies.find():
+            for series in study.get('series', []):
+                for instance in series.get('instances', []):
+                    if isinstance(instance, dict) and instance.get('sop_instance_uid') == sop_instance_uid:
+                        file_path = instance.get('file_path')
+                        break
+        
+        if not file_path or not os.path.exists(file_path):
+            return jsonify({"error": "File not found"}), 404
+            
+        # Öppna och analysera DICOM-filen
+        ds = pydicom.dcmread(file_path)
+        
+        # Samla in detaljerad information
+        debug_info = {
+            "file_info": {
+                "path": file_path,
+                "exists": os.path.exists(file_path),
+                "size_bytes": os.path.getsize(file_path),
+                "last_modified": datetime.fromtimestamp(os.path.getmtime(file_path)).isoformat()
+            },
+            "dicom_general": {
+                "sop_instance_uid": sop_instance_uid,
+                "transfer_syntax": str(ds.file_meta.TransferSyntaxUID) if hasattr(ds, 'file_meta') else "Unknown"
+            },
+            "dicom_image": {
+                "rows": getattr(ds, 'Rows', None),
+                "columns": getattr(ds, 'Columns', None),
+                "samples_per_pixel": getattr(ds, 'SamplesPerPixel', None),
+                "photometric_interpretation": getattr(ds, 'PhotometricInterpretation', None),
+                "bits_allocated": getattr(ds, 'BitsAllocated', None),
+                "bits_stored": getattr(ds, 'BitsStored', None),
+                "high_bit": getattr(ds, 'HighBit', None),
+                "pixel_representation": getattr(ds, 'PixelRepresentation', None)
+            }
+        }
+        
+        # Lägg till alla DICOM-attribut som inte är binärdata
+        all_attributes = {}
+        for elem in ds:
+            if elem.VR not in ['OB', 'OW', 'OF', 'SQ', 'UN']:
+                try:
+                    value = elem.value
+                    if hasattr(value, '__iter__') and not isinstance(value, str):
+                        value = list(value)
+                    all_attributes[elem.name] = str(value)
+                except Exception as e:
+                    all_attributes[elem.name] = f"Error: {str(e)}"
+                    
+        debug_info["all_attributes"] = all_attributes
+        
+        return jsonify(debug_info)
+    except Exception as e:
+        logger.error(f"Error debugging DICOM file: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':

@@ -17,7 +17,7 @@ import {
   ListTitle,
   SeriesItem,
   ToolbarContainer,
-  ToolButton,
+  ToolButton as ImportedToolButton,
   ControlsContainer,
   ImageControls,
   InfoPanel
@@ -134,6 +134,22 @@ const CanvasContainer = styled.div`
   outline: none;
 `;
 
+// Åtgärda React-varning för isActive-proppen på DOM-element
+const ToolButton = styled.button<{ $isActive?: boolean }>`
+  padding: 8px;
+  background-color: ${props => props.$isActive ? '#3498db' : '#2c3e50'};
+  color: white;
+  border: none;
+  border-radius: 4px;
+  margin-right: 4px;
+  cursor: pointer;
+  font-size: 18px;
+  
+  &:hover {
+    background-color: #4a6990;
+  }
+`;
+
 const DicomViewer: React.FC<DicomViewerProps> = ({
   seriesId: initialSeriesId
 }) => {
@@ -205,14 +221,31 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
   const loadSeries = async (studyId: string) => {
     try {
       console.log('[DicomViewer] Loading series for study:', studyId);
-      const seriesData = await dicomService.getSeriesForStudy(studyId);
-      console.log('[DicomViewer] Series data:', seriesData);
-      setSeries(seriesData);
       
-      // Om det finns serier, välj den första automatiskt
-      if (seriesData.length > 0) {
-        setSelectedSeriesId(seriesData[0].series_uid);
-        await renderSeries(seriesData[0].series_uid);
+      if (!studyId || studyId === 'undefined') {
+        console.error('[DicomViewer] Ogiltigt studyId, kan inte hämta serier');
+        setError('Kan inte ladda serier: Saknar studieidentifierare');
+        return;
+      }
+      
+      // Lägg till felhantering kring API-anrop
+      try {
+        const seriesData = await dicomService.getSeriesForStudy(studyId);
+        console.log('[DicomViewer] Series data:', seriesData);
+        setSeries(seriesData);
+        
+        // Om det finns serier, välj den första automatiskt
+        if (seriesData.length > 0) {
+          setSelectedSeriesId(seriesData[0].series_uid);
+          await renderSeries(seriesData[0].series_uid);
+        } else {
+          console.warn('[DicomViewer] Inga serier hittades för studie:', studyId);
+        }
+      } catch (apiError) {
+        console.error(`[DicomViewer] API-fel vid hämtning av serier för ${studyId}:`, apiError);
+        // Åtgärda typfel genom att kontrollera om apiError är ett Error-objekt
+        const errorMessage = apiError instanceof Error ? apiError.message : 'Okänt fel';
+        setError(`Kunde inte hämta serier: ${errorMessage}`);
       }
     } catch (error) {
       console.error('Error loading series for study:', error);
@@ -274,6 +307,35 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
         // Hämta metadata för första bilden
         const imageMetadata = await dicomService.getMetadata(imageIdsData[0].sopInstanceUid);
         setMetadata(imageMetadata);
+      }
+      
+      // Logga metadata för felsökning av saknade värden
+      if (imageIds.length > 0) {
+        console.log('[DicomViewer] Loggar metadata för första bilden');
+        
+        // Kontrollera imageId-formatet
+        const firstImageId = imageIds[0].imageId;
+        console.log('[DicomViewer] ImageId format:', firstImageId);
+        
+        // Anropa metadataloggaren
+        dicomService.logCornerstoneMetadata(firstImageId);
+        
+        // Kontrollera om vi kan lägga till en fallback-metadataprovider
+        cornerstone.metaData.addProvider((type, imageId) => {
+          if (type === 'imagePixelModule' && !cornerstone.metaData.get('imagePixelModule', imageId)) {
+            console.log('[DicomViewer] Lägger till fallback imagePixelModule för', imageId);
+            return {
+              samplesPerPixel: 1,
+              photometricInterpretation: 'MONOCHROME2',
+              rows: 512,
+              columns: 512,
+              bitsAllocated: 16,
+              bitsStored: 12,
+              highBit: 11,
+              pixelRepresentation: 0
+            };
+          }
+        }, 999); // Lägre prioritet så andra providers har företräde
       }
       
       setLoading(false);
@@ -378,28 +440,180 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
     }
   };
   
-  // Hantera byte av bild
-  const handleImageChange = useCallback(async (index: number) => {
-      if (index < 0 || index >= imageIds.length || !renderingEngine) {
+  // Ta bort setupViewport-beroende från denna useEffect eller deklarera funktionen tidigare
+  const setupViewport = useCallback(async () => {
+    if (!axialRef.current || !selectedSeriesId || imageIds.length === 0) {
+      console.log('[DicomViewer] Viewport kan inte konfigureras, saknas nödvändiga data');
+      return;
+    }
+
+    try {
+      console.log('[DicomViewer] Konfigurerar viewport...');
+      
+      // Kontrollera om vi redan har en fungerande renderingEngine
+      let engine = renderingEngine;
+      
+      // Rensa eventuell tidigare renderingEngine endast om nödvändigt
+      if (engine) {
+        try {
+          console.log('[DicomViewer] Använder befintlig renderingEngine');
+          // Vi behöver inte förstöra engine om den redan finns - det skapar loopen
+          // engine.destroy();
+        } catch (e) {
+          console.warn('[DicomViewer] Fel vid kontroll av renderingEngine:', e);
+          engine = null; // Sätt till null så vi skapar en ny
+        }
+      }
+      
+      // Skapa endast en ny renderingEngine om den inte finns eller är trasig
+      if (!engine) {
+        // Vänta en kort stund för att element ska vara klart
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Skapa ny renderingEngine med unikt ID för att undvika kollisioner
+        const uniqueEngineId = `dicomEngine_${Date.now()}`;
+        console.log('[DicomViewer] Skapar ny renderingEngine med ID:', uniqueEngineId);
+        engine = new RenderingEngine(uniqueEngineId);
+        setRenderingEngine(engine);
+      }
+      
+      // Använd ett enkelt viewport-ID
+      const viewportId = 'DICOM_VIEWPORT';
+      
+      // Logga första image ID för felsökning
+      console.log('[DicomViewer] Första bildId:', imageIds[0]?.imageId);
+      
+      // Skapa viewportinput
+      const viewportInput = {
+        viewportId,
+        element: axialRef.current,
+        type: Enums.ViewportType.STACK,
+        defaultOptions: {
+          background: [0.2, 0.2, 0.2] // Grå bakgrund för att se om viewport renderas
+        }
+      };
+      
+      // Aktivera viewport
+      await engine.enableElement(viewportInput);
+      console.log('[DicomViewer] Viewport aktiverad');
+      
+      // Hämta viewport
+      const viewport = engine.getViewport(viewportId) as StackViewport;
+      if (!viewport) {
+        console.error('[DicomViewer] Kunde inte hämta viewport');
         return;
       }
       
-      setCurrentImageIndex(index);
+      // Extrahera imageId-strängar från objekten
+      const imageIdStrings = imageIds.map(img => img.imageId);
+      console.log('[DicomViewer] Laddar stack med', imageIdStrings.length, 'bilder');
+      console.log('[DicomViewer] Första bildId-sträng:', imageIdStrings[0]);
       
-      // Uppdatera viewport till den valda bilden med typkastning
-      const viewport = renderingEngine.getViewport('CT_AXIAL_STACK') as StackViewport;
-      viewport.setImageIdIndex(index);
-      renderingEngine.render();
+      // Sätt stack på viewport
+      await viewport.setStack(imageIdStrings);
+      console.log('[DicomViewer] Stack konfigurerad');
       
-      // Hämta metadata för den valda bilden
-      try {
-        const imageMetadata = await dicomService.getMetadata(imageIds[index].sopInstanceUid);
-        setMetadata(imageMetadata);
-      } catch (error) {
-        console.error('Error loading metadata:', error);
+      // Gå till första bilden
+      await viewport.setImageIdIndex(0);
+      console.log('[DicomViewer] Bildindex satt till 0');
+      
+      // Rendera scenen
+      viewport.render();
+      
+      // Registrera verktyg för viewport
+      setupTools(viewport);
+      
+      console.log('[DicomViewer] Viewport konfigurerad framgångsrikt');
+    } catch (err) {
+      console.error('[DicomViewer] Fel vid setupViewport:', err);
+      setError(`Kunde inte konfigurera visningen: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [selectedSeriesId, imageIds, renderingEngine]);
+  
+  // Modifiera useEffect för att undvika oändlig loop - efter funktionsdeklarationen
+  useEffect(() => {
+    // Kör setupViewport enbart om vi har bilder men ingen renderingEngine
+    if (imageIds.length > 0 && selectedSeriesId && !renderingEngine) {
+      console.log('[DicomViewer] ImageIds finns men ingen renderingEngine, konfigurerar...');
+      setupViewport();
+    }
+  }, [imageIds, selectedSeriesId, renderingEngine, setupViewport]);
+
+  // Kontrollera bildernas format innan användning
+  useEffect(() => {
+    if (imageIds.length > 0) {
+      // Logga första bilden för felsökning
+      console.log('[DicomViewer] Första bilden:', imageIds[0]);
+      console.log('[DicomViewer] Bildformat kontrollerat');
+      
+      // Kontrollera om bilderna använder rätt schema (wadouri:)
+      const hasCorrectFormat = imageIds.every(img => 
+        typeof img.imageId === 'string' && img.imageId.startsWith('wadouri:')
+      );
+      
+      if (!hasCorrectFormat) {
+        console.error('[DicomViewer] Bilderna har inte korrekt format för Cornerstone');
+        setError('Bilderna har fel format. Kontakta administratören.');
       }
-    }, [imageIds, renderingEngine]);
-    
+    }
+  }, [imageIds]);
+
+  // Åtgärda problem med bildnavigering
+  const handleImageChange = useCallback(async (newIndex: number) => {
+    try {
+      if (imageIds.length === 0) {
+        console.warn('[DicomViewer] Inga bilder tillgängliga för navigering');
+        return;
+      }
+      
+      // Kontrollera att index är inom giltigt intervall
+      if (newIndex < 0) {
+        newIndex = 0;
+        console.warn('[DicomViewer] Justerar bildindex till 0');
+      } else if (newIndex >= imageIds.length) {
+        newIndex = imageIds.length - 1;
+        console.warn(`[DicomViewer] Justerar bildindex till ${newIndex}`);
+      }
+      
+      console.log(`[DicomViewer] Byter till bild med index: ${newIndex} (max: ${imageIds.length-1})`);
+      
+      if (!renderingEngine) {
+        console.error('[DicomViewer] renderingEngine saknas vid bildnavigering');
+        await setupViewport(); // Försök konfigurera viewport om renderingEngine saknas
+        if (!renderingEngine) {
+          console.error('[DicomViewer] Kunde inte skapa renderingEngine, avbryter bildnavigering');
+          return;
+        }
+      }
+      
+      // Hämta viewport
+      const viewport = renderingEngine.getViewport('DICOM_VIEWPORT') as any;
+      if (!viewport) {
+        console.error('[DicomViewer] Viewport saknas vid bildnavigering');
+        return;
+      }
+      
+      try {
+        // Sätt nytt bildindex
+        await viewport.setImageIdIndex(newIndex);
+        viewport.render();
+        
+        // Uppdatera state
+        setCurrentImageIndex(newIndex);
+        
+        // Uppdatera metadata för den nya bilden
+        if (imageIds[newIndex]) {
+          const newMetadata = await dicomService.getMetadata(imageIds[newIndex].sopInstanceUid);
+          setMetadata(newMetadata);
+        }
+      } catch (error) {
+        console.error(`[DicomViewer] Fel vid byte till bild ${newIndex}:`, error);
+      }
+    } catch (error) {
+      console.error('[DicomViewer] Fel vid bildnavigering:', error);
+    }
+  }, [imageIds, renderingEngine, setupViewport]);
+
   // useEffect för att hantera initialSeriesId
   useEffect(() => {
     if (initialSeriesId && initialSeriesId !== selectedSeriesId) {
@@ -419,20 +633,28 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
     }
   }, [studyId, selectedStudyId]); // Lägg till selectedStudyId som dependency
 
-  // Initiera Cornerstone
-  useEffect(() => {
-    const initializeViewer = async () => {
+  // Åtgärda problem med laddning av WebWorker
+  // I initializeViewer-funktionen, lägg till kontrollkod:
+  const initializeViewer = async () => {
+    try {
+      console.log('[DicomViewer] Initializing viewer...');
+      
+      // Kontrollera om WebWorker-filen finns tillgänglig
       try {
-        console.log('[DicomViewer] Initializing viewer...');
-        await dicomService.initialize();
-        console.log('[DicomViewer] dicomService.initialize() färdigställd');
-      } catch (error) {
-        console.error('[DicomViewer] Misslyckades att initiera viewer:', error);
+        const response = await fetch('/cornerstoneWADOImageLoaderWebWorker.min.js');
+        if (!response.ok) {
+          console.error('[DicomViewer] WebWorker-fil saknas, kontrollera tillgänglighet');
+        }
+      } catch (e) {
+        console.error('[DicomViewer] Kunde inte kontrollera WebWorker-fil:', e);
       }
-    };
-
-    initializeViewer();
-  }, []);
+      
+      await dicomService.initialize();
+      console.log('[DicomViewer] dicomService.initialize() färdigställd');
+    } catch (error) {
+      console.error('[DicomViewer] Misslyckades att initiera viewer:', error);
+    }
+  };
 
   // Ladda patienter
   useEffect(() => {
@@ -516,114 +738,6 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
     loadImageIds();
   }, [selectedSeriesId]);
 
-  // Uppdatera setupViewport för korrekt verktygshantering
-  useEffect(() => {
-    if (!axialRef.current || imageIds.length === 0 || loading || error) {
-      return;
-    }
-
-    const setupViewport = async () => {
-      try {
-        console.log('[DicomViewer] Konfigurerar viewport...');
-        
-        // Kontrollera att Cornerstone är initialiserat
-        if (!dicomService.isInitialized()) {
-          await dicomService.initialize();
-        }
-        
-        // Skapa rendering engine om den inte finns
-        if (!renderingEngine) {
-          console.log('[DicomViewer] Skapar rendering engine...');
-          const engine = new RenderingEngine('myRenderingEngine');
-          setRenderingEngine(engine);
-          
-          // Konfigurera viewport
-          const viewportInput = {
-            viewportId: 'myViewport',
-            type: Enums.ViewportType.STACK,
-            element: axialRef.current!,
-            defaultOptions: {
-              background: [0, 0, 0],
-            },
-          };
-          
-          // Aktivera viewport i rendering engine
-          await engine.enableElement(viewportInput);
-          
-          // Skapa toolGroup
-          try {
-            // Skapa en ny toolGroup med ett unikt ID
-            const myToolGroup = ToolGroupManager.createToolGroup('myToolGroup');
-            
-            // Lägg till verktyg i toolGroup
-            myToolGroup.addTool(WindowLevelTool);
-            myToolGroup.addTool(ZoomTool);
-            myToolGroup.addTool(PanTool);
-            myToolGroup.addTool(LengthTool);
-            myToolGroup.addTool(StackScrollMouseWheelTool);
-            
-            // Aktivera scrollhjul för stack navigation
-            myToolGroup.setToolActive('StackScrollMouseWheelTool');
-            
-            // Aktivera window/level som standard verktyg
-            myToolGroup.setToolActive('WindowLevelTool', {
-              bindings: [{ mouseButton: 1 }],
-            });
-            
-            // Lägg till viewport i toolGroup
-            myToolGroup.addViewport('myViewport', 'myRenderingEngine');
-            
-            setToolGroup(myToolGroup);
-            setActiveTool('WindowLevelTool');
-          } catch (toolError) {
-            console.error('[DicomViewer] Fel vid skapande av toolGroup:', toolError);
-          }
-        }
-        
-        // Hämta viewport från rendering engine
-        const viewport = renderingEngine.getViewport('myViewport') as StackViewport;
-        
-        if (!viewport) {
-          console.error('[DicomViewer] Kunde inte hitta viewport');
-          setError('Kunde inte konfigurera bildvisning');
-          return;
-        }
-        
-        // Skapa en stack med bilder
-        const stack = imageIds.map(img => img.imageId);
-        console.log('[DicomViewer] Stack att ladda:', stack);
-        
-        // Ladda stack i viewport
-        await viewport.setStack(stack, 0);
-        
-        // Rendera viewport
-        viewport.render();
-        
-        console.log('[DicomViewer] Viewport konfigurerad och renderad');
-        
-        // Ställ in initial bild
-        setCurrentImageIndex(0);
-      } catch (error) {
-        console.error('[DicomViewer] Fel vid setupViewport:', error);
-        
-        if (error instanceof Error) {
-          setError(`Misslyckades att ställa in viewer: ${error.message}`);
-        } else {
-          setError('Misslyckades att ställa in viewer');
-        }
-      }
-    };
-
-    // Lägg till en liten fördröjning för att säkerställa att DOM har uppdaterats
-    const timeoutId = setTimeout(() => {
-      setupViewport();
-    }, 100);
-
-    return () => {
-      clearTimeout(timeoutId);
-    };
-  }, [imageIds, loading, error]);
-
   // Hantera tangentbordshändelser för att bläddra genom bilder
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -640,8 +754,89 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
     };
   }, [currentImageIndex, handleImageChange]);
 
+  // Kontrollera bildladdningsproblem
+  // Lägg till detta i useEffect som hanterar bildformat
+  useEffect(() => {
+    if (imageIds.length > 0) {
+      // Logga första bilden för felsökning
+      console.log('[DicomViewer] Första bilden:', imageIds[0]);
+      console.log('[DicomViewer] Bildformat kontrollerat');
+      
+      // Om API-svaret innehåller felaktigt eller saknat värde för samplesPerPixel
+      // så kan vi behöva konfigurera en fallback
+      cornerstone.metaData.addProvider((type, imageId) => {
+        if (type === 'samplesPerPixel' && imageId.startsWith('wadouri:')) {
+          return 1; // Standardvärde för de flesta DICOM-bilder
+        }
+      }, 10000); // Låg prioritet så våra övriga providers används först
+    }
+  }, [imageIds]);
+
   // Lägg till dessa loggar i början av komponenten
   console.log('[DicomViewer] Component mounting...');
+
+  // Lägg till saknad setupTools-funktion
+  const setupTools = useCallback((viewport: any) => {
+    try {
+      console.log('[DicomViewer] Konfigurerar verktyg för viewport');
+      
+      // Hämta verktygsklasser från csTools
+      const { 
+        ToolGroupManager, 
+        WindowLevelTool,
+        ZoomTool,
+        PanTool,
+        LengthTool,
+        StackScrollMouseWheelTool 
+      } = csTools as any;
+      
+      // Skapa en ny verktygsgrupp med unikt ID
+      const toolGroupId = 'DicomViewerToolGroup';
+      
+      // Ta bort tidigare verktygsgrupp om den finns
+      try {
+        const existingToolGroup = ToolGroupManager.getToolGroup(toolGroupId);
+        if (existingToolGroup) {
+          ToolGroupManager.destroyToolGroup(toolGroupId);
+        }
+      } catch (e) {
+        console.warn('[DicomViewer] Ingen tidigare verktygsgrupp att ta bort');
+      }
+      
+      const newToolGroup = ToolGroupManager.createToolGroup(toolGroupId);
+      
+      if (!newToolGroup) {
+        console.error('[DicomViewer] Kunde inte skapa verktygsgrupp');
+        return;
+      }
+      
+      // Spara verktygsgruppen i state
+      setToolGroup(newToolGroup);
+      
+      // Lägg till verktyg
+      newToolGroup.addTool(WindowLevelTool.toolName);
+      newToolGroup.addTool(ZoomTool.toolName);
+      newToolGroup.addTool(PanTool.toolName);
+      newToolGroup.addTool(LengthTool.toolName);
+      newToolGroup.addTool(StackScrollMouseWheelTool.toolName);
+      
+      // Aktivera verktyg
+      newToolGroup.setToolActive(WindowLevelTool.toolName, { bindings: [{ mouseButton: 1 }] });
+      newToolGroup.setToolActive(StackScrollMouseWheelTool.toolName, { bindings: [] });
+      
+      // Lägg till viewport till verktygsgruppen
+      newToolGroup.addViewport(viewport.id, viewport.renderingEngineId);
+      
+      console.log('[DicomViewer] Verktyg konfigurerade');
+    } catch (e) {
+      console.error('[DicomViewer] Fel vid konfiguration av verktyg:', e);
+    }
+  }, []);
+
+  // Lägg till initializeViewer-anrop i useEffect
+  useEffect(() => {
+    initializeViewer();
+  }, []);
 
   // Rendera komponenten
   return (
@@ -650,7 +845,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
         {toolButtons.map(button => (
           <ToolButton
             key={button.name}
-            isActive={activeTool === button.toolName}
+            $isActive={activeTool === button.toolName}
             onClick={() => handleToolChange(button.toolName, button.mouseButton)}
             title={button.label}
           >
@@ -766,25 +961,25 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
           </ViewerPanel>
         
         <InfoPanel>
-          <h3>Serieinformation</h3>
-          {selectedSeriesId && <div>Serie-ID: {selectedSeriesId}</div>}
-          <div>Bilder: {imageIds.length}</div>
+          <h3 key="info-title">Serieinformation</h3>
+          {selectedSeriesId && <div key="series-id">Serie-ID: {selectedSeriesId}</div>}
+          <div key="images-count">Bilder: {imageIds.length}</div>
           
           {metadata && (
-            <MetadataContainer>
+            <MetadataContainer key="metadata">
               <h4>Bildmetadata</h4>
-              <MetadataItem>
+              <MetadataItem key="size">
                 <MetadataLabel>Storlek:</MetadataLabel>
                 <MetadataValue>{metadata.rows} x {metadata.columns}</MetadataValue>
               </MetadataItem>
               {metadata.sliceThickness && (
-                <MetadataItem>
+                <MetadataItem key="thickness">
                   <MetadataLabel>Skivtjocklek:</MetadataLabel>
                   <MetadataValue>{metadata.sliceThickness.toFixed(2)} mm</MetadataValue>
                 </MetadataItem>
               )}
               {metadata.pixelSpacing && (
-                <MetadataItem>
+                <MetadataItem key="spacing">
                   <MetadataLabel>Pixelavstånd:</MetadataLabel>
                   <MetadataValue>
                     {metadata.pixelSpacing[0].toFixed(2)} x {metadata.pixelSpacing[1].toFixed(2)} mm

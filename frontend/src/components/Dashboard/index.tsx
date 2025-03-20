@@ -190,7 +190,7 @@ const Dashboard: React.FC = () => {
           }}>
             {mockICP.value.toFixed(1)}
           </StatNumber>
-          <StatLabel>Current ICP (mmHg)</StatLabel>
+          <StatLabel>Current ICP for Patient John Doe (mmHg)</StatLabel>
           <div style={{ 
             fontSize: '0.8rem', 
             color: mockICP.trend === 'increasing' ? '#d32f2f' : '#388e3c'

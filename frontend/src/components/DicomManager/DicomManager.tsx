@@ -14,6 +14,7 @@ import { FaCheck, FaExclamationTriangle } from 'react-icons/fa';
 // Add props interface
 export interface DicomManagerProps {
   patientId: string;
+  patient_name: string;
   onUploadComplete?: (result: DicomImportResult) => void;
 }
 
@@ -189,32 +190,7 @@ const DicomManager: React.FC<DicomManagerProps> = ({
   const [pendingDirectoryPath, setPendingDirectoryPath] = useState<string>('');
   const [pendingDicomData, setPendingDicomData] = useState<any>(null);
 
-  // Fetch studies when patientId changes
-  useEffect(() => {
-    const fetchStudies = async () => {
-      try {
-        if (patientId) {
-          const results = await dicomService.searchStudies(`patient:${patientId}`);
-          // Filtrera sökresultat för att få endast studier
-          const studyResults = results
-            .filter(result => result.type === 'study' && result.studyData)
-            .map(result => result.studyData as DicomStudy);
-          setStudies(studyResults);
-        } else {
-          const results = await dicomService.searchStudies('');
-          const studyResults = results
-            .filter(result => result.type === 'study' && result.studyData)
-            .map(result => result.studyData as DicomStudy);
-          setStudies(studyResults);
-        }
-      } catch (error) {
-        console.error('Failed to fetch studies:', error);
-        setError(error instanceof Error ? error.message : 'Failed to fetch studies');
-      }
-    };
 
-    fetchStudies();
-  }, [patientId]);
 
   const handleDirectorySelect = async (selectedPath: string) => {
     try {

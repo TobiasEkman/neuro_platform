@@ -80,6 +80,7 @@ export class DicomService {
   private baseUrl: string;
   private initialized: boolean = false;
   private toolGroup: any = null;
+  private metadataCache: { [sopInstanceUid: string]: DicomMetadata } = {};
 
   constructor() {
     this.baseUrl = '/api/dicom';
@@ -266,6 +267,9 @@ export class DicomService {
       
       console.log('[DicomService] Initieringen slutfördes framgångsrikt');
       this.initialized = true;
+
+      // Lägg till en metod för att registrera metadataprovidern
+      this.registerMetadataProvider();
     } catch (error) {
       console.error('[DicomService] Initialisering misslyckades:', error);
       if (error instanceof Error) {
@@ -448,12 +452,75 @@ export class DicomService {
   async getMetadata(sopInstanceUid: string): Promise<DicomMetadata> {
     try {
       console.log('[DicomService] Fetching metadata for:', sopInstanceUid);
+      
+      // Kontrollera om vi har cachad metadata först
+      if (this.metadataCache[sopInstanceUid]) {
+        console.log('[DicomService] Returning cached metadata');
+        return this.metadataCache[sopInstanceUid];
+      }
+      
       const response = await axios.get(`${this.baseUrl}/metadata/${sopInstanceUid}`);
-      return response.data;
+      const metadata = response.data;
+      
+      // Cachea resultatet
+      this.metadataCache[sopInstanceUid] = metadata;
+      
+      return metadata;
     } catch (error) {
       console.error('Error getting metadata:', error);
       throw this.handleError(error, 'Failed to get metadata');
     }
+  }
+
+  // Lägg till en metod för att registrera metadataprovidern
+  registerMetadataProvider(): void {
+    console.log('[DicomService] Registering metadata provider');
+    
+    cornerstone.metaData.addProvider((type: string, imageId: string) => {
+      if (!imageId.startsWith('wadouri:')) return;
+      
+      const sopInstanceUid = imageId.split('/').pop();
+      if (!sopInstanceUid) {
+        console.warn(`[DicomService] Kunde inte extrahera SOP Instance UID från ${imageId}`);
+        return;
+      }
+      
+      console.log(`[DicomService] Looking up ${type} for ${sopInstanceUid}`);
+      
+      const metadata = this.metadataCache[sopInstanceUid];
+      if (!metadata) {
+        console.warn(`[DicomService] No metadata found for ${sopInstanceUid}`);
+        return;
+      }
+      
+      if (type === 'imagePixelModule') {
+        return {
+          samplesPerPixel: (metadata as any).samplesPerPixel || 1,
+          photometricInterpretation: (metadata as any).photometricInterpretation || 'MONOCHROME2',
+          rows: metadata.rows || 512,
+          columns: metadata.columns || 512,
+          bitsAllocated: 16,
+          bitsStored: 12,
+          highBit: 11,
+          pixelRepresentation: 0,
+        };
+      }
+      
+      if (type === 'voiLutModule') {
+        return {
+          windowCenter: metadata.windowCenter || 40,
+          windowWidth: metadata.windowWidth || 400
+        };
+      }
+      
+      if (type === 'imagePlaneModule' && metadata.pixelSpacing) {
+        return {
+          pixelSpacing: metadata.pixelSpacing,
+          imageOrientationPatient: [1, 0, 0, 0, 1, 0],
+          imagePositionPatient: [0, 0, 0]
+        };
+      }
+    }, 10);
   }
 
   // Main folder parsing method
@@ -772,6 +839,73 @@ export class DicomService {
       );
     }
     return error instanceof Error ? error : new Error(defaultMessage);
+  }
+
+  // Lägg till en metod för att debugga DICOM-metadata
+  logCornerstoneMetadata(imageId: string): void {
+    try {
+      console.log('[DicomService] Inspekterar metadata för:', imageId);
+      
+      // Hämta imagePixelModule som innehåller samplesPerPixel
+      const imagePixelModule = cornerstone.metaData.get('imagePixelModule', imageId);
+      console.log('[DicomService] imagePixelModule:', imagePixelModule);
+      
+      if (!imagePixelModule) {
+        console.error('[DicomService] VARNING: imagePixelModule saknas helt i metadata!');
+        
+        // Kontrollera vilka metadatatyper som finns för denna bild
+        console.log('[DicomService] Tillgängliga metadatatyper:');
+        ['generalSeriesModule', 'imagePlaneModule', 'voiLutModule', 'modalityLutModule'].forEach(type => {
+          const data = cornerstone.metaData.get(type, imageId);
+          console.log(`- ${type}: ${data ? 'finns' : 'saknas'}`);
+        });
+        
+        // Försök hämta raw DICOM-data
+        const instance = cornerstone.metaData.get('instance', imageId);
+        console.log('[DicomService] Raw DICOM instance:', instance);
+      } else {
+        // Logga alla viktiga egenskaper från imagePixelModule
+        console.log('[DicomService] Viktiga bildegenskaper:');
+        console.log('- samplesPerPixel:', imagePixelModule.samplesPerPixel);
+        console.log('- photometricInterpretation:', imagePixelModule.photometricInterpretation);
+        console.log('- rows:', imagePixelModule.rows);
+        console.log('- columns:', imagePixelModule.columns);
+        console.log('- bitsAllocated:', imagePixelModule.bitsAllocated);
+        console.log('- bitsStored:', imagePixelModule.bitsStored);
+        console.log('- pixelRepresentation:', imagePixelModule.pixelRepresentation);
+      }
+      
+      // Implementera en egen version av getImageFrame-funktionen för felsökning
+      const getDebugImageFrame = (imageId: string) => {
+        const imagePixelModule = cornerstone.metaData.get('imagePixelModule', imageId);
+        
+        if (!imagePixelModule) {
+          console.error('[DicomService] Kan inte skapa imageFrame - imagePixelModule saknas');
+          return null;
+        }
+        
+        return {
+          samplesPerPixel: imagePixelModule.samplesPerPixel,
+          photometricInterpretation: imagePixelModule.photometricInterpretation,
+          planarConfiguration: imagePixelModule.planarConfiguration,
+          rows: imagePixelModule.rows,
+          columns: imagePixelModule.columns,
+          bitsAllocated: imagePixelModule.bitsAllocated,
+          bitsStored: imagePixelModule.bitsStored,
+          pixelRepresentation: imagePixelModule.pixelRepresentation,
+          smallestPixelValue: imagePixelModule.smallestPixelValue,
+          largestPixelValue: imagePixelModule.largestPixelValue,
+          imageId
+        };
+      };
+      
+      // Försök skapa en imageFrame
+      const debugFrame = getDebugImageFrame(imageId);
+      console.log('[DicomService] Debug Image Frame:', debugFrame);
+      
+    } catch (error) {
+      console.error('[DicomService] Fel vid loggning av metadata:', error);
+    }
   }
 }
 

@@ -116,6 +116,7 @@ export interface DicomImage {
 
 export interface DicomStudy {
   study_instance_uid: string;
+  patient_name: string;
   study_date: string;
   study_time?: string;
   study_description?: string;
@@ -177,4 +178,26 @@ export interface DicomPatientSummary {
   patient_name: string;
   birth_date?: string;
   sex?: string;
+}
+
+export interface DicomMetadata {
+  studyInstanceUid?: string;
+  seriesInstanceUid?: string;
+  sopInstanceUid?: string;
+  rows?: number;
+  columns?: number;
+  pixelSpacing?: number[];
+  sliceThickness?: number;
+  sliceLocation?: number;
+  instanceNumber?: number;
+  windowCenter?: number;
+  windowWidth?: number;
+  
+  // Lägg till dessa egenskaper som saknas
+  samplesPerPixel?: number;
+  photometricInterpretation?: string;
+  bitsAllocated?: number;
+  bitsStored?: number;
+  highBit?: number;
+  pixelRepresentation?: number;
 } 
