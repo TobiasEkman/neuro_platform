@@ -462,7 +462,10 @@ export const PatientExplorer: React.FC = () => {
         showToast('Patient updated successfully', 'success');
       } else {
         // Uppdatera flera patienter
-        await patientService.bulkUpdatePatients(pendingUploadData);
+        // Använd en loop för att uppdatera varje patient individuellt
+        for (const patient of pendingUploadData) {
+          await patientService.updatePatient(patient.pid, patient);
+        }
         showToast('Patients updated successfully', 'success');
       }
       

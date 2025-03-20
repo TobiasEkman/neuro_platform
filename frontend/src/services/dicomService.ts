@@ -53,12 +53,18 @@ export interface DicomMetadata {
   sopInstanceUid: string;
   rows: number;
   columns: number;
-  pixelSpacing: number[];
-  sliceThickness: number;
-  sliceLocation: number;
-  instanceNumber: number;
-  windowCenter: number;
-  windowWidth: number;
+  samplesPerPixel?: number;
+  photometricInterpretation?: string;
+  pixelSpacing?: number[];
+  sliceThickness?: number;
+  sliceLocation?: number;
+  instanceNumber?: number;
+  windowCenter?: number;
+  windowWidth?: number;
+  bitsAllocated?: number;
+  bitsStored?: number;
+  highBit?: number;
+  pixelRepresentation?: number;
 }
 
 interface CustomLoaderOptions {
@@ -495,8 +501,8 @@ export class DicomService {
       
       if (type === 'imagePixelModule') {
         return {
-          samplesPerPixel: (metadata as any).samplesPerPixel || 1,
-          photometricInterpretation: (metadata as any).photometricInterpretation || 'MONOCHROME2',
+          samplesPerPixel: metadata.samplesPerPixel || 1,
+          photometricInterpretation: metadata.photometricInterpretation || 'MONOCHROME2',
           rows: metadata.rows || 512,
           columns: metadata.columns || 512,
           bitsAllocated: 16,
