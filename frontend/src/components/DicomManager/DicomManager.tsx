@@ -14,7 +14,6 @@ import { FaCheck, FaExclamationTriangle } from 'react-icons/fa';
 // Add props interface
 export interface DicomManagerProps {
   patientId: string;
-  patient_name: string;
   onUploadComplete?: (result: DicomImportResult) => void;
 }
 
