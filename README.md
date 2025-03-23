@@ -1,15 +1,7 @@
 *NEUROSURGERY PLATFORM*
 ====================
 
-To do:
-- deleta hela dicomviewer
-- https://github.com/cornerstonejs/cornerstone3D/tree/main/packages/ai
-- Gå igenom varje funktion från flask till frontend DONE
-- Uppdatera @imaging_data att skicka rätt data DONE
-- Currently working on implementing cornerstone3D in the dicom viewer
-- Improve tumor analysis service
-- Better dicom viewer, for example through batch up 
-- Implement docker compose for all services
+Readme not updated fully
 
 A comprehensive platform for neurosurgical planning, monitoring, and analysis.
 
