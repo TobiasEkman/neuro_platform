@@ -17,7 +17,6 @@ interface CustomInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
 interface FileUploadProps {
   onDirectorySelect: (path: string) => void;
   disabled?: boolean;
-  basePath?: string;
 }
 
 // Skapa en custom styled input-komponent
@@ -35,38 +34,26 @@ export const FileUpload: React.FC<FileUploadProps> = ({
 }) => {
   const [currentPath, setCurrentPath] = useState<string>('');
 
-  const handleSelect = (path: string) => {
-    setCurrentPath(path);
-    onDirectorySelect(path);
+  const handlePathSubmit = () => {
+    if (!currentPath) return;
+    onDirectorySelect(currentPath);
   };
 
   return (
     <UploadContainer>
-      <HiddenInput
+      <PathInput
+        value={currentPath}
+        onChange={(e) => setCurrentPath(e.target.value)}
+        placeholder="Enter DICOM directory path..."
         disabled={disabled}
-        id="dicom-directory-input"
-        onChange={(e) => {
-          const files = e.target.files;
-          if (files && files.length > 0) {
-            // Använd typade filer
-            const file = files[0] as CustomFile;
-            const fullPath = file.path || file.webkitRelativePath;
-            handleSelect(fullPath);
-          }
-        }}
       />
       <UploadButton
-        disabled={disabled}
-        onClick={() => document.getElementById('dicom-directory-input')?.click()}
+        disabled={disabled || !currentPath}
+        onClick={handlePathSubmit}
       >
         <FaFolder style={{ marginRight: '8px' }} />
-        {disabled ? 'Processing...' : 'Select DICOM Directory'}
+        {disabled ? 'Processing...' : 'Parse DICOM Directory'}
       </UploadButton>
-      {currentPath && (
-        <PathDisplay>
-          Selected: {currentPath}
-        </PathDisplay>
-      )}
     </UploadContainer>
   );
 };
@@ -106,6 +93,21 @@ const UploadButton = styled.button<{ disabled?: boolean }>`
 
   &:active {
     transform: ${props => props.disabled ? 'none' : 'translateY(0)'};
+  }
+`;
+
+const PathInput = styled.input`
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid ${props => props.theme.colors.border};
+  border-radius: 4px;
+  font-size: 1rem;
+  background: ${props => props.theme.colors.background.primary};
+  color: ${props => props.theme.colors.text.primary};
+
+  &:disabled {
+    background: ${props => props.theme.colors.background.disabled};
+    cursor: not-allowed;
   }
 `;
 

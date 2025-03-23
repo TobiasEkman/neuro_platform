@@ -13,6 +13,7 @@ from datetime import datetime
 from bson import ObjectId
 from bson.json_util import dumps, default
 from flask.json import JSONEncoder
+import sys
 
 # Set logging level to INFO
 logging.basicConfig(level=logging.INFO)
@@ -108,11 +109,20 @@ def parse_folder():
         
         def generate_response():
             for progress in parser.parse(folder_path):
-                yield f"data: {json.dumps(progress)}\n\n"
+                percentage = (progress['current'] / progress['total']) * 100
+                logger.info(f"Progress: {percentage:.1f}%")
+                # Skicka bara percentage
+                yield f"data: {json.dumps({'percentage': percentage})}\n\n"
+                if hasattr(sys.stdout, 'flush'):
+                    sys.stdout.flush()
         
         return Response(
             generate_response(),
-            mimetype='text/event-stream'
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no'
+            }
         )
         
     except Exception as e:

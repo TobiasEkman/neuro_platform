@@ -8,7 +8,7 @@ import { usePatient } from '../../hooks/usePatient';
 import { UploadSection } from './UploadSection';
 import { FileUpload } from './FileUpload';
 import styled from 'styled-components';
-import { FaCheck, FaExclamationTriangle } from 'react-icons/fa';
+import { FaCheck, FaExclamationTriangle, FaSpinner } from 'react-icons/fa';
 
 
 // Add props interface
@@ -46,48 +46,6 @@ const CloseButton = styled.button`
   cursor: pointer;
   padding: 5px;
 `;
-
-interface ProgressBarProps {
-  progress: number;
-  text: string;
-}
-
-const ProgressBar = styled.div<ProgressBarProps>`
-  width: 100%;
-  height: 20px;
-  background-color: #ddd;
-  border-radius: 10px;
-  overflow: hidden;
-  margin-bottom: 10px;
-  position: relative;
-
-  &:after {
-    content: "${props => props.text}";
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    z-index: 1;
-  }
-
-  &:before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    height: 100%;
-    background-color: ${props => props.theme.colors.primary};
-    width: ${props => `${props.progress}%`};
-    border-radius: 10px;
-    transition: width 0.5s ease-in-out;
-  }
-`;
-
 
 // Lägg till en ny komponent för bekräftelsedialog
 const ConfirmationDialog = styled.div`
@@ -169,6 +127,30 @@ interface PatientConfirmation {
   studyCount: number;
 }
 
+// Lägg till efter de andra styled-komponenterna
+const ProcessingIndicator = styled.div`
+  background: ${props => props.theme.colors.background.secondary};
+  color: ${props => props.theme.colors.text.primary};
+  padding: 12px;
+  border-radius: 4px;
+  text-align: center;
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  svg {
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    100% {
+      transform: rotate(360deg);
+    }
+  }
+`;
+
 const DicomManager: React.FC<DicomManagerProps> = ({ 
   patientId,
   onUploadComplete
@@ -177,7 +159,6 @@ const DicomManager: React.FC<DicomManagerProps> = ({
   const [selectedStudyId, setSelectedStudyId] = useState<string>();
   const [error, setError] = useState<string | null>(null);
   const { patient } = usePatient(patientId);
-  const [progress, setProgress] = useState<number>(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [dicomPath, setDicomPath] = useState<string>(
     localStorage.getItem('lastDicomPath') || ''
@@ -195,16 +176,11 @@ const DicomManager: React.FC<DicomManagerProps> = ({
     try {
       setIsProcessing(true);
       setError(null);
-      setProgress(0);
       
       console.log('[DicomManager] Parsing directory:', selectedPath);
       
       const result = await dicomService.parseDirectory(
-        selectedPath,
-        (progress) => {
-          // progress innehåller { current, total, percentage }
-          setProgress(progress.percentage);
-        }
+        selectedPath
       );
       
       if (!result.studies || result.studies.length === 0) {
@@ -255,9 +231,7 @@ const DicomManager: React.FC<DicomManagerProps> = ({
       setIsProcessing(true);
       
       // Nu när användaren har bekräftat, importera data till databasen
-      const result = await dicomService.importDicomData(pendingDirectoryPath, pendingDicomData, (progress) => {
-        setProgress(progress.percentage);
-      });
+      const result = await dicomService.importDicomData(pendingDirectoryPath, pendingDicomData);
       
       // Uppdatera studielisten
       const results = await dicomService.searchStudies(
@@ -312,10 +286,10 @@ const DicomManager: React.FC<DicomManagerProps> = ({
           disabled={isProcessing}
         />
         {isProcessing && (
-          <ProgressBar 
-            progress={progress} 
-            text={`Processing: ${progress.toFixed(1)}%`}
-          />
+          <ProcessingIndicator>
+            <FaSpinner />
+            Processing DICOM files...
+          </ProcessingIndicator>
         )}
       </UploadSection>
       

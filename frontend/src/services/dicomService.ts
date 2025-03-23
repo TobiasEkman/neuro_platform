@@ -535,48 +535,54 @@ export class DicomService {
     onProgress?: (progress: { current: number; total: number; percentage: number }) => void
   ): Promise<DicomImportResult> {
     try {
-      logger.debug(`Parsing directory: ${directoryPath}`);
+      console.log('Parsing directory:', directoryPath);
       
-      const response = await axios.post(
-        `${this.baseUrl}/parse/folder`,
-        { folderPath: directoryPath },
-        {
-          responseType: 'stream',
-          headers: {
-            'Accept': 'text/event-stream'
-          },
-          timeout: 0,
-          onDownloadProgress: (progressEvent) => {
-            const text = progressEvent.event?.target?.responseText || '';
-            const events = text.split('\n\n').filter(Boolean);
-            
-            const lastEvent = events[events.length - 1];
-            if (lastEvent && lastEvent.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(lastEvent.slice(6));
-                if (!data.complete && !data.error && onProgress) {
-                  onProgress(data);
-                }
-              } catch (e) {
-                // Ignore parse errors for incomplete events
-              }
+      const response = await fetch(`${this.baseUrl}/parse/folder`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+        },
+        body: JSON.stringify({ folderPath: directoryPath })
+      });
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No reader available');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let lastResult;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split('\n\n');
+        
+        // Behåll sista eventet som kan vara ofullständigt
+        buffer = events.pop() || '';
+
+        for (const event of events) {
+          if (event.startsWith('data: ')) {
+            const data = JSON.parse(event.slice(6));
+            // Använd bara percentage direkt
+            if (onProgress && data.percentage) {
+              onProgress({
+                current: 0,  // Behövs inte längre
+                total: 0,    // Behövs inte längre
+                percentage: data.percentage
+              });
             }
+            lastResult = data;
           }
         }
-      );
-
-      const events = response.data.split('\n\n').filter(Boolean);
-      const lastEvent = events[events.length - 1];
-      const result = JSON.parse(lastEvent.slice(6));
-
-      if (result.error) {
-        throw new Error(result.error);
       }
 
-      return result;
+      return lastResult;
     } catch (error) {
-      logger.error(`Directory parse error: ${error instanceof Error ? error.message : String(error)}`);
-      throw this.handleError(error, 'Failed to parse directory');
+      console.error('Error parsing directory:', error);
+      throw error;
     }
   }
 
